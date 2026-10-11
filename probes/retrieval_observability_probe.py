@@ -78,7 +78,7 @@ def main():
     user_api_key = cfg["user_api_key"]
 
     # 1. Health check
-    print(f"\n[1/5] Checking server health at {base_url}/health...")
+    print(f"\n[1/6] Checking server health at {base_url}/health...")
     status, health_data = http_get_json(f"{base_url}/health")
     if status != 200:
         print(f"FAILED: Health check returned HTTP {status}: {health_data}")
@@ -89,7 +89,7 @@ def main():
     print(f"  OK: Server healthy (version {health_data.get('version')})")
 
     # 2. Check initial observer status
-    print("\n[2/5] Reading initial observer status...")
+    print("\n[2/6] Reading initial observer status...")
     status, obs_resp = http_get_json(
         f"{base_url}/api/v1/observer/retrieval?format=json",
         headers={"X-API-Key": root_api_key},
@@ -103,7 +103,7 @@ def main():
     print(f"  Initial avg rerank latency by lane: {initial_stats.get('avg_rerank_latency_by_lane', {})}")
 
     # 3. Issue test queries on light and heavy lanes
-    print("\n[3/5] Issuing test retrieval queries with lane routing...")
+    print("\n[3/6] Issuing test retrieval queries with lane routing...")
     # Light lane via search
     search_payload = {
         "query": "observability telemetry verification",
@@ -139,7 +139,7 @@ def main():
     print("  OK: Heavy lane find completed successfully")
 
     # 4. Verify Prometheus metrics contain lane dimension
-    print("\n[4/5] Verifying Prometheus metrics for lane dimension...")
+    print("\n[4/6] Verifying Prometheus metrics for lane dimension...")
     status, metrics_text = http_get(f"{base_url}/metrics")
     if status != 200:
         print(f"FAILED: Failed to fetch /metrics (HTTP {status})")
@@ -160,7 +160,7 @@ def main():
     print("  OK: Prometheus metrics successfully emit 'lane' dimension")
 
     # 5. Verify observer retrieval status contains avg_rerank_latency_by_lane
-    print("\n[5/5] Verifying Observer retrieval per-lane latency tracking...")
+    print("\n[5/6] Verifying Observer retrieval per-lane latency tracking...")
     status, obs_resp = http_get_json(
         f"{base_url}/api/v1/observer/retrieval?format=json",
         headers={"X-API-Key": root_api_key},
@@ -184,8 +184,20 @@ def main():
 
     print("  OK: Observer retrieval stats successfully tracks per-lane latency")
 
+    # 6. Verify observer retrieval status contains rerank_fallback tracking
+    print("\n[6/6] Verifying Observer retrieval rerank fallback metric tracking...")
+    rerank_fallback = post_stats.get("rerank_fallback")
+    print(f"  Post-probe rerank fallback count: {rerank_fallback}")
+    if rerank_fallback is None:
+        print("FAILED: 'rerank_fallback' field missing from observer retrieval status!")
+        return 1
+    if not isinstance(rerank_fallback, int):
+        print(f"FAILED: Expected int for 'rerank_fallback', got {type(rerank_fallback)}")
+        return 1
+    print("  OK: Observer retrieval stats successfully tracks rerank fallback")
+
     print("\n" + "=" * 60)
-    print("ALL CANARY CHECKS PASSED: Observability Hardening Verified")
+    print("ALL CANARY CHECKS PASSED: Observability & Resilience Verified")
     print("=" * 60)
     return 0
 
