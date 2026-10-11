@@ -320,3 +320,61 @@ class TestRerankCollectorLaneMetrics:
             r'openviking_rerank_calls_total\{(?=[^}]*lane="default")(?=[^}]*model_name="test-reranker")(?=[^}]*provider="openai")[^}]*\} 1(?:\.0)?',
             text,
         )
+
+
+class TestRerankClientAndRetrieverLanePropagation:
+    """Test lane propagation through RerankBase and HierarchicalRetriever."""
+
+    def test_rerank_base_update_token_usage_passes_lane(self, monkeypatch):
+        from openviking.models.rerank.base import RerankBase
+
+        recorded_events = []
+        class DummyDataSource:
+            @staticmethod
+            def record_call(**kwargs):
+                recorded_events.append(kwargs)
+
+        monkeypatch.setattr("openviking.metrics.datasources.RerankEventDataSource", DummyDataSource)
+
+        client = RerankBase()
+        client.provider = "test"
+        client.update_token_usage(
+            model_name="stub",
+            provider="test",
+            prompt_tokens=50,
+            completion_tokens=0,
+            duration_seconds=0.05,
+            lane="heavy",
+        )
+        assert len(recorded_events) == 1
+        assert recorded_events[0]["lane"] == "heavy"
+
+    def test_openai_rerank_client_rerank_batch_accepts_and_passes_lane(self, monkeypatch):
+        from openviking.models.rerank.openai_rerank import OpenAIRerankClient
+
+        recorded_events = []
+        class DummyDataSource:
+            @staticmethod
+            def record_call(**kwargs):
+                recorded_events.append(kwargs)
+
+        monkeypatch.setattr("openviking.metrics.datasources.RerankEventDataSource", DummyDataSource)
+
+        client = OpenAIRerankClient(
+            api_key="k",
+            api_base="http://127.0.0.1:8082/v1/rerank",
+            model_name="test-model",
+        )
+        with patch("requests.post") as mock_post:
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {
+                "results": [{"index": 0, "relevance_score": 0.9}],
+                "usage": {"total_tokens": 10},
+            }
+            mock_post.return_value = resp
+
+            scores = client.rerank_batch("test query", ["doc 1"], lane="light")
+            assert scores == [0.9]
+            assert len(recorded_events) == 1
+            assert recorded_events[0]["lane"] == "light"

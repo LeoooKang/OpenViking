@@ -119,13 +119,19 @@ class OpenAIRerankClient(RerankBase):
             return None
         return response_json.get("results")
 
-    def rerank_batch(self, query: str, documents: List[str]) -> Optional[List[float]]:
+    def rerank_batch(
+        self,
+        query: str,
+        documents: List[str],
+        lane: Optional[str] = None,
+    ) -> Optional[List[float]]:
         """
         Batch rerank documents against a query.
 
         Args:
             query: Query text
             documents: List of document texts to rank
+            lane: Optional rerank routing lane ('light', 'heavy')
 
         Returns:
             List of rerank scores for each document (same order as input),
@@ -153,6 +159,7 @@ class OpenAIRerankClient(RerankBase):
                 proxies = None
 
             response = None
+            t0 = time.perf_counter()
             for attempt in range(self.max_retries + 1):
                 try:
                     response = requests.post(
@@ -176,10 +183,17 @@ class OpenAIRerankClient(RerankBase):
             if response is None:
                 return None
             response.raise_for_status()
+            duration_seconds = max(time.perf_counter() - t0, 0.0)
             result = response.json()
 
             # Update token usage tracking (estimate, OpenAI rerank doesn't provide token info)
-            self._extract_and_update_token_usage(result, query, documents)
+            self._extract_and_update_token_usage(
+                result,
+                query,
+                documents,
+                duration_seconds=duration_seconds,
+                lane=lane,
+            )
 
             results = self._extract_results(result)
             if not results:

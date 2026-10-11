@@ -59,6 +59,7 @@ class RerankBase:
         prompt_tokens: int,
         completion_tokens: int,
         duration_seconds: float = 0.0,
+        lane: str | None = None,
     ) -> None:
         """Update token usage
 
@@ -68,6 +69,7 @@ class RerankBase:
             prompt_tokens: Number of input tokens
             completion_tokens: Number of output tokens
             duration_seconds: Wall-clock duration of the rerank provider call in seconds
+            lane: Optional rerank routing lane (e.g. 'light', 'heavy')
         """
         self._token_tracker.update(
             model_name=model_name,
@@ -78,12 +80,16 @@ class RerankBase:
         try:
             from openviking.telemetry import get_current_telemetry
 
-            get_current_telemetry().record_token_usage(
+            telemetry = get_current_telemetry()
+            telemetry.record_token_usage(
                 "rerank",
                 int(prompt_tokens),
                 int(completion_tokens),
                 stage="rerank",
             )
+            if lane:
+                telemetry.set("rerank.lane", lane)
+                telemetry.count(f"rerank.{lane}.tokens", int(prompt_tokens) + int(completion_tokens))
         except Exception as e:
             # Telemetry must never break rerank execution.
             if logger.isEnabledFor(logging.DEBUG):
@@ -106,6 +112,7 @@ class RerankBase:
                 duration_seconds=max(float(duration_seconds), 0.0),
                 prompt_tokens=int(prompt_tokens),
                 completion_tokens=int(completion_tokens),
+                lane=lane,
                 account_id=root_context.account_id if root_context is not None else None,
             )
         except Exception as e:
@@ -125,6 +132,7 @@ class RerankBase:
         query: str,
         documents: list,
         duration_seconds: float = 0.0,
+        lane: str | None = None,
     ) -> None:
         """Extract and update token usage from API response.
 
@@ -133,6 +141,7 @@ class RerankBase:
             query: Query text (for estimation if needed)
             documents: List of documents (for estimation if needed)
             duration_seconds: Wall-clock duration of the rerank provider call in seconds
+            lane: Optional rerank routing lane
         """
         prompt_tokens = 0
         completion_tokens = 0
@@ -162,6 +171,7 @@ class RerankBase:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             duration_seconds=duration_seconds,
+            lane=lane,
         )
 
     def get_token_usage(self) -> Dict[str, Any]:

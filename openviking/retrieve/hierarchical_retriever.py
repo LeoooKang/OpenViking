@@ -386,11 +386,21 @@ class HierarchicalRetriever:
 
         lane_label = lane or "default"
         try:
-            scores = await asyncio.to_thread(
-                rerank_client.rerank_batch,
-                rerank_query,
-                [document for _, document in rerank_documents],
-            )
+            import inspect
+
+            sig = inspect.signature(rerank_client.rerank_batch)
+            if "lane" in sig.parameters:
+                call_fn = lambda: rerank_client.rerank_batch(
+                    rerank_query,
+                    [document for _, document in rerank_documents],
+                    lane=lane,
+                )
+            else:
+                call_fn = lambda: rerank_client.rerank_batch(
+                    rerank_query,
+                    [document for _, document in rerank_documents],
+                )
+            scores = await asyncio.to_thread(call_fn)
         except Exception as e:
             logger.warning(
                 "[HierarchicalRetriever] Rerank failed (lane=%s), fallback to vector scores: %s",
