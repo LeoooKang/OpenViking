@@ -111,6 +111,58 @@ class TestOpenAIRerankClientRetry:
         assert scores is None
         assert mock_post.call_count == 1
 
+    @patch("time.sleep", return_value=None)
+    @patch("requests.post")
+    def test_timeout_error_retries_and_succeeds(self, mock_post, mock_sleep):
+        success_response = MagicMock()
+        success_response.status_code = 200
+        success_response.json.return_value = {
+            "results": [{"index": 0, "relevance_score": 0.95}]
+        }
+        mock_post.side_effect = [
+            requests.exceptions.Timeout("Read timed out"),
+            success_response,
+        ]
+
+        client = OpenAIRerankClient(
+            api_key="key",
+            api_base="http://localhost:8082/v1/rerank",
+            model_name="test-model",
+            max_retries=2,
+        )
+        scores = client.rerank_batch("test query", ["doc 1"])
+        assert scores == [0.95]
+        assert mock_post.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("time.sleep", return_value=None)
+    @patch("requests.post")
+    def test_retryable_http_status_codes_retries_and_succeeds(self, mock_post, mock_sleep):
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+
+        resp_503 = MagicMock()
+        resp_503.status_code = 503
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        resp_200.json.return_value = {
+            "results": [{"index": 0, "relevance_score": 0.95}]
+        }
+
+        mock_post.side_effect = [resp_429, resp_503, resp_200]
+
+        client = OpenAIRerankClient(
+            api_key="key",
+            api_base="http://localhost:8082/v1/rerank",
+            model_name="test-model",
+            max_retries=2,
+        )
+        scores = client.rerank_batch("test query", ["doc 1"])
+        assert scores == [0.95]
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+
 
 class TestRerankProfilesAndRoutingConfig:
     """Test rerank_profiles and rerank_routing parsing and back-compatibility."""

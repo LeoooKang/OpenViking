@@ -169,12 +169,23 @@ class OpenAIRerankClient(RerankBase):
                         timeout=self.timeout,
                         proxies=proxies,
                     )
+                    if (
+                        response.status_code in (429, 502, 503, 504)
+                        and attempt < self.max_retries
+                    ):
+                        delay = 0.5 * (2 ** attempt)
+                        logger.warning(
+                            f"[OpenAIRerankClient] Retryable HTTP {response.status_code} on attempt {attempt + 1}"
+                            f"/{self.max_retries + 1}, retrying in {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                        continue
                     break
-                except requests.exceptions.ConnectionError as e:
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                     if attempt < self.max_retries:
                         delay = 0.5 * (2 ** attempt)
                         logger.warning(
-                            f"[OpenAIRerankClient] Connection error on attempt {attempt + 1}"
+                            f"[OpenAIRerankClient] Network error ({type(e).__name__}) on attempt {attempt + 1}"
                             f"/{self.max_retries + 1}, retrying in {delay:.1f}s: {e}"
                         )
                         time.sleep(delay)
