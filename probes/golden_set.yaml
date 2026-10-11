@@ -1,0 +1,147 @@
+version: "1.0.0"
+description: "Canonical golden set for OpenViking retrieval quality evaluation (P-20261011-04 Phase 3)"
+metadata:
+  created_at: "2026-10-12"
+  target_subsystem: "OpenViking Semantic Search & Context Retrieval"
+  evaluation_metrics:
+    - recall_at_1
+    - recall_at_3
+    - recall_at_5
+    - mean_reciprocal_rank
+    - score_separation
+
+queries:
+  # Category 1: Team History & Decisions
+  - id: "Q01"
+    category: "history"
+    query: "language perimeter ruling D-8"
+    expected_uris:
+      - "viking://resources/collab/receipts/2026-09-30-D8-language-perimeter.md"
+  - id: "Q02"
+    category: "history"
+    query: "mode hygiene baseline drop D-1"
+    expected_uris:
+      - "viking://resources/collab/receipts/2026-09-30-D1-mode-hygiene-baseline-drop.md"
+  - id: "Q03"
+    category: "history"
+    query: "proposal P-20260927-01 cancellation"
+    expected_uris:
+      - "viking://resources/collab/receipts/2026-09-30-P-20260927-01-cancelled.md"
+  - id: "Q04"
+    category: "history"
+    query: "per-agent user accounts architecture T-20260830-10"
+    expected_uris:
+      - "viking://resources/tasks-subset/T-20260830-10-per-agent-user-accounts/.abstract.md"
+  - id: "Q05"
+    category: "history"
+    query: "archived subfolder support T-20260830-05"
+    expected_uris:
+      - "viking://resources/tasks-subset/T-20260830-05-archived-subfolder-support/.abstract.md"
+
+  # Category 2: Errors & Postmortems
+  - id: "Q06"
+    category: "error"
+    query: "ov CLI tenant routing error"
+    expected_uris:
+      - "viking://resources/errors/ov-cli-tenant-routing.md"
+  - id: "Q07"
+    category: "error"
+    query: "containerized member onboarding gap postmortem"
+    expected_uris:
+      - "viking://resources/errors/containerized-member-onboarding-gap.md"
+  - id: "Q08"
+    category: "error"
+    query: "persona status staleness after provisioning"
+    expected_uris:
+      - "viking://resources/errors/persona-status-staleness-after-provisioning.md"
+  - id: "Q09"
+    category: "error"
+    query: "bash sandbox git write failure in agents-skills"
+    expected_uris:
+      - "viking://resources/errors/agents-skills-git-write-failure-under-bash-sandbox.md"
+  - id: "Q10"
+    category: "error"
+    query: "citation drift line referenced reports error"
+    expected_uris:
+      - "viking://resources/errors/citation-drift-in-line-referenced-reports.md"
+  - id: "Q11"
+    category: "error"
+    query: "sampling controls unverified against sampler scope"
+    expected_uris:
+      - "viking://resources/errors/sampling-controls-unverified-against-sampler-scope.md"
+  - id: "Q12"
+    category: "error"
+    query: "agent tools whitelist filters MCP tools defect"
+    expected_uris:
+      - "viking://resources/errors/agent-tools-whitelist-filters-mcp-tools.md"
+
+  # Category 3: Agent Memories & Snapshots
+  - id: "Q13"
+    category: "memory"
+    query: "Phase 1 observability hardening snapshot Monica"
+    expected_uris:
+      - "viking://user/monica/memories/task-P-20261011-04-phase1-observability-snapshot.md"
+  - id: "Q14"
+    category: "memory"
+    query: "Phase 2 storage resilience snapshot Monica"
+    expected_uris:
+      - "viking://user/monica/memories/task-P-20261011-04-phase2-storage-resilience-snapshot.md"
+  - id: "Q15"
+    category: "memory"
+    query: "OpenViking multi-write check canary"
+    expected_uris:
+      - "viking://resources/multiwrite-check.txt"
+  - id: "Q16"
+    category: "memory"
+    query: "OpenViking full capability rollout charter P-20261011-04"
+    expected_uris:
+      - "viking://user/monica/memories/task-P-20261011-04-phase1-observability-snapshot.md"
+      - "viking://user/monica/memories/task-P-20261011-04-phase2-storage-resilience-snapshot.md"
+  - id: "Q17"
+    category: "protocol"
+    query: "three-agent collaboration system roles and red lines"
+    expected_uris:
+      - "viking://resources/collab/receipts/.overview.md"
+      - "viking://resources/collab/receipts/2026-09-30-D1-mode-hygiene-baseline-drop.md"
+
+  # Category 4: Structure & Governance
+  - id: "Q18"
+    category: "structure"
+    query: "governance receipts and adjudication register overview"
+    expected_uris:
+      - "viking://resources/collab/receipts/.overview.md"
+  - id: "Q19"
+    category: "structure"
+    query: "defect schema for recording reproducible errors"
+    expected_uris:
+      - "viking://resources/errors/.overview.md"
+  - id: "Q20"
+    category: "structure"
+    query: "task-wiki architecture and project documentation"
+    expected_uris:
+      - "viking://resources/task-wiki/.overview.md"
+      - "viking://resources/task-wiki/.abstract.md"
+  - id: "Q21"
+    category: "structure"
+    query: "subagents execution workspace"
+    expected_uris:
+      - "viking://resources/subagents/.abstract.md"
+      - "viking://resources/subagents/.overview.md"
+
+  # Category 5: Negative / Noise Controls
+  - id: "Q22"
+    category: "noise"
+    query: "weather forecast for Mars rover in 2040"
+    expected_uris: []
+  - id: "Q23"
+    category: "noise"
+    query: "recipe for authentic Neapolitan pizza dough"
+    expected_uris: []
+  - id: "Q24"
+    category: "noise"
+    query: "quantum entanglement cryptographic key exchange protocol"
+    expected_uris: []
+  - id: "Q25"
+    category: "noise"
+    query: "how to train a giraffe to dance the tango"
+    expected_uris: []
