@@ -111,6 +111,45 @@ class TestRetrievalStatsCollector:
         assert d["min_score"] == 0.6
         assert d["avg_latency_ms"] == 25.0
 
+    def test_record_per_lane_latency(self):
+        collector = RetrievalStatsCollector()
+        collector.record_query(
+            context_type="memory",
+            result_count=2,
+            scores=[0.9, 0.8],
+            latency_ms=150.0,
+            rerank_used=True,
+            lane="light",
+            rerank_latency_ms=120.0,
+        )
+        collector.record_query(
+            context_type="memory",
+            result_count=3,
+            scores=[0.95],
+            latency_ms=800.0,
+            rerank_used=True,
+            lane="heavy",
+            rerank_latency_ms=750.0,
+        )
+        collector.record_query(
+            context_type="memory",
+            result_count=1,
+            scores=[0.85],
+            latency_ms=160.0,
+            rerank_used=True,
+            lane="light",
+            rerank_latency_ms=140.0,
+        )
+
+        snap = collector.snapshot()
+        assert snap.rerank_latency_by_lane == {"light": 260.0, "heavy": 750.0}
+        assert snap.avg_rerank_latency_by_lane == {"light": 130.0, "heavy": 750.0}
+
+        d = snap.to_dict()
+        assert d["rerank_by_lane"] == {"light": 2, "heavy": 1}
+        assert "avg_rerank_latency_by_lane" in d
+        assert d["avg_rerank_latency_by_lane"] == {"light": 130.0, "heavy": 750.0}
+
 
 class TestRetrievalObserver:
     def _setup_collector(self):

@@ -287,7 +287,9 @@ class HierarchicalRetriever:
         )
         scores = [candidate["_score"] for candidate in candidates]
         rerank_used = use_rerank and bool(candidates)
+        rerank_latency_ms = 0.0
         if rerank_used:
+            t_rerank = time.monotonic()
             scores = await self._rerank_scores(
                 query.query,
                 [str(candidate.get("abstract", "")) for candidate in candidates],
@@ -296,6 +298,7 @@ class HierarchicalRetriever:
                 max_input_tokens=lane_max_tokens,
                 lane=effective_lane,
             )
+            rerank_latency_ms = (time.monotonic() - t_rerank) * 1000.0
             lane_label = effective_lane or "default"
             telemetry.set("rerank.lane", lane_label)
             telemetry.count(f"rerank.{lane_label}.calls", 1)
@@ -319,6 +322,7 @@ class HierarchicalRetriever:
             latency_ms=elapsed_ms,
             rerank_used=rerank_used,
             lane=effective_lane,
+            rerank_latency_ms=rerank_latency_ms,
         )
 
         return QueryResult(

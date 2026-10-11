@@ -30,6 +30,7 @@ class RetrievalStats:
     rerank_used: int = 0
     rerank_fallback: int = 0
     rerank_by_lane: Dict[str, int] = field(default_factory=dict)
+    rerank_latency_by_lane: Dict[str, float] = field(default_factory=dict)
     total_latency_ms: float = 0.0
     max_latency_ms: float = 0.0
 
@@ -57,6 +58,15 @@ class RetrievalStats:
             return 0.0
         return self.total_latency_ms / self.total_queries
 
+    @property
+    def avg_rerank_latency_by_lane(self) -> Dict[str, float]:
+        result = {}
+        for lane, total_lat in self.rerank_latency_by_lane.items():
+            count = self.rerank_by_lane.get(lane, 0)
+            if count > 0:
+                result[lane] = round(total_lat / count, 1)
+        return result
+
     def to_dict(self) -> dict:
         """Serialize stats for API responses."""
         return {
@@ -72,6 +82,7 @@ class RetrievalStats:
             "rerank_used": self.rerank_used,
             "rerank_fallback": self.rerank_fallback,
             "rerank_by_lane": dict(self.rerank_by_lane),
+            "avg_rerank_latency_by_lane": self.avg_rerank_latency_by_lane,
             "avg_latency_ms": round(self.avg_latency_ms, 1),
             "max_latency_ms": round(self.max_latency_ms, 1),
         }
@@ -112,6 +123,7 @@ class RetrievalStatsCollector:
         rerank_used: bool = False,
         rerank_fallback: bool = False,
         lane: Optional[str] = None,
+        rerank_latency_ms: float = 0.0,
     ) -> None:
         """Record metrics from a single retrieval query."""
         with self._lock:
@@ -137,6 +149,10 @@ class RetrievalStatsCollector:
                 if lane:
                     self._stats.rerank_by_lane[lane] = (
                         self._stats.rerank_by_lane.get(lane, 0) + 1
+                    )
+                    self._stats.rerank_latency_by_lane[lane] = (
+                        self._stats.rerank_latency_by_lane.get(lane, 0.0)
+                        + rerank_latency_ms
                     )
             if rerank_fallback:
                 self._stats.rerank_fallback += 1
