@@ -478,3 +478,44 @@ class TestHierarchicalRetrieverFallback:
         )
         assert scores == [0.92]
         assert fell_back is False
+
+
+class TestThresholdResolutionAndMCPHarmonization:
+    """Test dynamic threshold resolution and MCP min_score default harmonization."""
+
+    def test_hierarchical_retriever_resolves_lane_threshold_when_score_threshold_none(self):
+        from openviking.retrieve.hierarchical_retriever import HierarchicalRetriever
+
+        retriever = HierarchicalRetriever.__new__(HierarchicalRetriever)
+        retriever.threshold = 0.0
+
+        # Case 1: score_threshold is None, lane_threshold is 0.1 -> returns 0.1
+        resolved = retriever._resolve_threshold(None, lane_threshold=0.1)
+        assert resolved == 0.1
+
+        # Case 2: score_threshold is explicit 0.85, lane_threshold is 0.1 -> returns 0.85
+        resolved = retriever._resolve_threshold(0.85, lane_threshold=0.1)
+        assert resolved == 0.85
+
+        # Case 3: both are None -> returns default 0.0
+        resolved = retriever._resolve_threshold(None, lane_threshold=None)
+        assert resolved == 0.0
+
+    def test_mcp_find_signature_defaults_min_score_to_none(self):
+        import inspect
+        from openviking.server import mcp_endpoint
+
+        sig = inspect.signature(mcp_endpoint.find)
+        param = sig.parameters.get("min_score")
+        assert param is not None
+        assert param.default is None
+
+    def test_mcp_search_score_threshold_defaults_to_none_when_min_score_omitted(self):
+        import inspect
+        from openviking.server import mcp_endpoint
+
+        sig = inspect.signature(mcp_endpoint.search)
+        param = sig.parameters.get("min_score")
+        assert param is not None
+        assert param.default is None
+
