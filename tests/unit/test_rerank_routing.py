@@ -264,3 +264,59 @@ class TestHierarchicalRetrieverRouting:
         assert lane == "light"
         client, cfg, _, _ = retriever._get_lane_resources(lane)
         assert cfg.model == "4B-MLX"
+
+
+class TestRerankCollectorLaneMetrics:
+    """Test lane dimension support in RerankCollector and RerankEventDataSource."""
+
+    def test_rerank_collector_records_lane_label(self):
+        import re
+        from openviking.metrics.collectors.rerank import RerankCollector
+        from openviking.metrics.core.registry import MetricRegistry
+        from openviking.metrics.exporters.prometheus import PrometheusExporter
+
+        registry = MetricRegistry()
+        collector = RerankCollector()
+        collector.receive(
+            "rerank.call",
+            {
+                "provider": "openai",
+                "model_name": "test-reranker",
+                "duration_seconds": 0.123,
+                "prompt_tokens": 100,
+                "completion_tokens": 0,
+                "lane": "light",
+            },
+            registry,
+        )
+        text = PrometheusExporter(registry=registry).render()
+        assert re.search(
+            r'openviking_rerank_calls_total\{(?=[^}]*lane="light")(?=[^}]*model_name="test-reranker")(?=[^}]*provider="openai")[^}]*\} 1(?:\.0)?',
+            text,
+        )
+
+    def test_rerank_collector_defaults_none_lane_to_default(self):
+        import re
+        from openviking.metrics.collectors.rerank import RerankCollector
+        from openviking.metrics.core.registry import MetricRegistry
+        from openviking.metrics.exporters.prometheus import PrometheusExporter
+
+        registry = MetricRegistry()
+        collector = RerankCollector()
+        collector.receive(
+            "rerank.call",
+            {
+                "provider": "openai",
+                "model_name": "test-reranker",
+                "duration_seconds": 0.123,
+                "prompt_tokens": 100,
+                "completion_tokens": 0,
+                "lane": None,
+            },
+            registry,
+        )
+        text = PrometheusExporter(registry=registry).render()
+        assert re.search(
+            r'openviking_rerank_calls_total\{(?=[^}]*lane="default")(?=[^}]*model_name="test-reranker")(?=[^}]*provider="openai")[^}]*\} 1(?:\.0)?',
+            text,
+        )

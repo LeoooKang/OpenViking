@@ -70,6 +70,7 @@ class RerankCollector(EventMetricCollector):
             duration_seconds=float(payload["duration_seconds"]),
             prompt_tokens=int(payload["prompt_tokens"]),
             completion_tokens=int(payload["completion_tokens"]),
+            lane=str(payload.get("lane") or "default"),
             account_id=(
                 None if payload.get("account_id") is None else str(payload.get("account_id"))
             ),
@@ -84,28 +85,35 @@ class RerankCollector(EventMetricCollector):
         duration_seconds: float,
         prompt_tokens: int,
         completion_tokens: int,
+        lane: str | None = None,
         account_id: str | None = None,
     ) -> None:
         """Record one rerank call as calls/tokens counters plus a latency histogram sample."""
-        labels = {"provider": str(provider), "model_name": str(model_name)}
+        effective_lane = str(lane or "default")
+        labels = {
+            "provider": str(provider),
+            "model_name": str(model_name),
+            "lane": effective_lane,
+        }
+        label_names = ("provider", "model_name", "lane")
         registry.inc_counter(
             self.CALLS_TOTAL,
             labels=labels,
-            label_names=("provider", "model_name"),
+            label_names=label_names,
             account_id=account_id,
         )
         registry.observe_histogram(
             self.CALL_DURATION_SECONDS,
             float(duration_seconds),
             labels=labels,
-            label_names=("provider", "model_name"),
+            label_names=label_names,
             account_id=account_id,
         )
         if int(prompt_tokens) > 0:
             registry.inc_counter(
                 self.TOKENS_INPUT_TOTAL,
                 labels=labels,
-                label_names=("provider", "model_name"),
+                label_names=label_names,
                 amount=int(prompt_tokens),
                 account_id=account_id,
             )
@@ -113,7 +121,7 @@ class RerankCollector(EventMetricCollector):
             registry.inc_counter(
                 self.TOKENS_OUTPUT_TOTAL,
                 labels=labels,
-                label_names=("provider", "model_name"),
+                label_names=label_names,
                 amount=int(completion_tokens),
                 account_id=account_id,
             )
@@ -122,7 +130,7 @@ class RerankCollector(EventMetricCollector):
             registry.inc_counter(
                 self.TOKENS_TOTAL,
                 labels=labels,
-                label_names=("provider", "model_name"),
+                label_names=label_names,
                 amount=total_tokens,
                 account_id=account_id,
             )
