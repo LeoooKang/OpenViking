@@ -430,3 +430,51 @@ class TestRerankClientAndRetrieverLanePropagation:
             assert scores == [0.9]
             assert len(recorded_events) == 1
             assert recorded_events[0]["lane"] == "light"
+
+
+class TestHierarchicalRetrieverFallback:
+    """Test rerank fallback detection and metric reporting."""
+
+    @pytest.mark.asyncio
+    async def test_rerank_scores_reports_fallback_flag_on_failure(self):
+        from openviking.retrieve.hierarchical_retriever import HierarchicalRetriever
+
+        failing_client = MagicMock()
+        failing_client.rerank_batch.side_effect = RuntimeError("Reranker down")
+
+        retriever = HierarchicalRetriever.__new__(HierarchicalRetriever)
+        retriever._rerank_client = failing_client
+        retriever.rerank_max_input_tokens = 512
+
+        scores, fell_back = await retriever._rerank_scores(
+            query="test query",
+            documents=["doc A"],
+            fallback_scores=[0.35],
+            client=failing_client,
+            lane="heavy",
+            return_fallback_flag=True,
+        )
+        assert scores == [0.35]
+        assert fell_back is True
+
+    @pytest.mark.asyncio
+    async def test_rerank_scores_reports_fallback_flag_on_success(self):
+        from openviking.retrieve.hierarchical_retriever import HierarchicalRetriever
+
+        ok_client = MagicMock()
+        ok_client.rerank_batch.return_value = [0.92]
+
+        retriever = HierarchicalRetriever.__new__(HierarchicalRetriever)
+        retriever._rerank_client = ok_client
+        retriever.rerank_max_input_tokens = 512
+
+        scores, fell_back = await retriever._rerank_scores(
+            query="test query",
+            documents=["doc A"],
+            fallback_scores=[0.35],
+            client=ok_client,
+            lane="light",
+            return_fallback_flag=True,
+        )
+        assert scores == [0.92]
+        assert fell_back is False

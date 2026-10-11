@@ -8,7 +8,7 @@ import asyncio
 import math
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from openviking.core.context import ContextLevel
 from openviking.core.retrieval_targets import default_target_directories
@@ -288,21 +288,25 @@ class HierarchicalRetriever:
         scores = [candidate["_score"] for candidate in candidates]
         rerank_used = use_rerank and bool(candidates)
         rerank_latency_ms = 0.0
+        rerank_fell_back = False
         if rerank_used:
             t_rerank = time.monotonic()
-            scores = await self._rerank_scores(
+            scores, rerank_fell_back = await self._rerank_scores(
                 query.query,
                 [str(candidate.get("abstract", "")) for candidate in candidates],
                 scores,
                 client=client,
                 max_input_tokens=lane_max_tokens,
                 lane=effective_lane,
+                return_fallback_flag=True,
             )
             rerank_latency_ms = (time.monotonic() - t_rerank) * 1000.0
             lane_label = effective_lane or "default"
             telemetry.set("rerank.lane", lane_label)
             telemetry.count(f"rerank.{lane_label}.calls", 1)
             telemetry.count(f"rerank.{lane_label}.docs", len(candidates))
+            if rerank_fell_back:
+                telemetry.count(f"rerank.{lane_label}.fallback", 1)
 
         # A low vector score can still rerank highly, so filter only after reranking.
         candidates = [
@@ -321,6 +325,7 @@ class HierarchicalRetriever:
             scores=[m.score for m in final],
             latency_ms=elapsed_ms,
             rerank_used=rerank_used,
+            rerank_fallback=rerank_fell_back,
             lane=effective_lane,
             rerank_latency_ms=rerank_latency_ms,
         )
@@ -362,11 +367,12 @@ class HierarchicalRetriever:
         client: Optional[Any] = None,
         max_input_tokens: Optional[int] = None,
         lane: Optional[str] = None,
-    ) -> List[float]:
+        return_fallback_flag: bool = False,
+    ) -> Union[List[float], Tuple[List[float], bool]]:
         """Return rerank scores or fall back to vector scores."""
         rerank_client = client or self._rerank_client
         if not rerank_client or not documents:
-            return fallback_scores
+            return (fallback_scores, False) if return_fallback_flag else fallback_scores
 
         input_token_limit = (
             max_input_tokens if max_input_tokens is not None else self.rerank_max_input_tokens
@@ -376,7 +382,7 @@ class HierarchicalRetriever:
             (index, document) for index, document in enumerate(documents) if document.strip()
         ]
         if not rerank_documents:
-            return fallback_scores
+            return (fallback_scores, False) if return_fallback_flag else fallback_scores
 
         if input_token_limit > 0:
             max_query_tokens = input_token_limit * 3 // 4
@@ -411,7 +417,7 @@ class HierarchicalRetriever:
                 lane_label,
                 e,
             )
-            return fallback_scores
+            return (fallback_scores, True) if return_fallback_flag else fallback_scores
 
         if not scores or len(scores) != len(rerank_documents):
             logger.warning(
@@ -419,7 +425,7 @@ class HierarchicalRetriever:
                 "fallback to vector scores",
                 lane_label,
             )
-            return fallback_scores
+            return (fallback_scores, True) if return_fallback_flag else fallback_scores
 
         model_name = getattr(rerank_client, "model_name", "unknown")
         logger.info(
@@ -432,7 +438,7 @@ class HierarchicalRetriever:
         normalized_scores = list(fallback_scores)
         for score, (index, _) in zip(scores, rerank_documents, strict=True):
             normalized_scores[index] = self._finite_score(score, fallback_scores[index])
-        return normalized_scores
+        return (normalized_scores, False) if return_fallback_flag else normalized_scores
 
     async def _convert_to_matched_contexts(
         self,
