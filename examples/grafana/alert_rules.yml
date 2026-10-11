@@ -1,0 +1,38 @@
+groups:
+  - name: openviking_alerts
+    rules:
+      - alert: OpenVikingHttp5xxRateHigh
+        expr: sum by (route) (rate(openviking_http_requests_total{status=~"5.."}[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate on route {{ $labels.route }}"
+          description: "OpenViking is serving 5xx errors on route {{ $labels.route }} at rate {{ $value }} req/s."
+
+      - alert: OpenVikingExecutorFailedGrowth
+        expr: rate(openviking_executor_failed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenViking background executor task failures detected"
+          description: "openviking_executor_failed_total is increasing at rate {{ $value }} failures/s."
+
+      - alert: OpenVikingObserverComponentsUnhealthy
+        expr: openviking_observer_components_unhealthy > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unhealthy OpenViking observer components"
+          description: "{{ $value }} OpenViking components are marked unhealthy by observer."
+
+      - alert: OpenVikingRerankFallbackOrError
+        expr: (rate(openviking_retrieval_rerank_fallback_total[5m]) > 0) or (openviking_model_usage_available{model_type="rerank"} == 0)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenViking rerank fallback or model unavailability detected"
+          description: "Rerank is experiencing fallbacks (rate {{ $value }}) or the rerank model is unavailable."
