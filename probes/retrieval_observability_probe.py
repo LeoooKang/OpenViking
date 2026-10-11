@@ -78,7 +78,7 @@ def main():
     user_api_key = cfg["user_api_key"]
 
     # 1. Health check
-    print(f"\n[1/6] Checking server health at {base_url}/health...")
+    print(f"\n[1/7] Checking server health at {base_url}/health...")
     status, health_data = http_get_json(f"{base_url}/health")
     if status != 200:
         print(f"FAILED: Health check returned HTTP {status}: {health_data}")
@@ -89,7 +89,7 @@ def main():
     print(f"  OK: Server healthy (version {health_data.get('version')})")
 
     # 2. Check initial observer status
-    print("\n[2/6] Reading initial observer status...")
+    print("\n[2/7] Reading initial observer status...")
     status, obs_resp = http_get_json(
         f"{base_url}/api/v1/observer/retrieval?format=json",
         headers={"X-API-Key": root_api_key},
@@ -103,7 +103,7 @@ def main():
     print(f"  Initial avg rerank latency by lane: {initial_stats.get('avg_rerank_latency_by_lane', {})}")
 
     # 3. Issue test queries on light and heavy lanes
-    print("\n[3/6] Issuing test retrieval queries with lane routing...")
+    print("\n[3/7] Issuing test retrieval queries with lane routing...")
     # Light lane via search
     search_payload = {
         "query": "observability telemetry verification",
@@ -139,7 +139,7 @@ def main():
     print("  OK: Heavy lane find completed successfully")
 
     # 4. Verify Prometheus metrics contain lane dimension
-    print("\n[4/6] Verifying Prometheus metrics for lane dimension...")
+    print("\n[4/7] Verifying Prometheus metrics for lane dimension...")
     status, metrics_text = http_get(f"{base_url}/metrics")
     if status != 200:
         print(f"FAILED: Failed to fetch /metrics (HTTP {status})")
@@ -160,7 +160,7 @@ def main():
     print("  OK: Prometheus metrics successfully emit 'lane' dimension")
 
     # 5. Verify observer retrieval status contains avg_rerank_latency_by_lane
-    print("\n[5/6] Verifying Observer retrieval per-lane latency tracking...")
+    print("\n[5/7] Verifying Observer retrieval per-lane latency tracking...")
     status, obs_resp = http_get_json(
         f"{base_url}/api/v1/observer/retrieval?format=json",
         headers={"X-API-Key": root_api_key},
@@ -185,7 +185,7 @@ def main():
     print("  OK: Observer retrieval stats successfully tracks per-lane latency")
 
     # 6. Verify observer retrieval status contains rerank_fallback tracking
-    print("\n[6/6] Verifying Observer retrieval rerank fallback metric tracking...")
+    print("\n[6/7] Verifying Observer retrieval rerank fallback metric tracking...")
     rerank_fallback = post_stats.get("rerank_fallback")
     print(f"  Post-probe rerank fallback count: {rerank_fallback}")
     if rerank_fallback is None:
@@ -196,8 +196,53 @@ def main():
         return 1
     print("  OK: Observer retrieval stats successfully tracks rerank fallback")
 
+    # 7. Verify score distribution stability and threshold separation
+    print("\n[7/7] Verifying score distribution stability and threshold separation...")
+    # Positive control: core relevant query
+    pos_payload = {
+        "query": "reranker tiered routing",
+        "limit": 3,
+    }
+    status, pos_resp = http_post(
+        f"{base_url}/api/v1/search/find",
+        pos_payload,
+        headers={"X-API-Key": user_api_key},
+    )
+    if status != 200:
+        print(f"FAILED: Positive control query failed with HTTP {status}: {pos_resp}")
+        return 1
+    pos_memories = pos_resp.get("result", {}).get("memories", [])
+    if not pos_memories:
+        print("FAILED: Positive control query returned 0 memories!")
+        return 1
+    top_score = pos_memories[0].get("score", 0.0)
+    print(f"  Positive control top score: {top_score:.4f} (uri: {pos_memories[0].get('uri')})")
+    if top_score < 0.50:
+        print(f"FAILED: Positive control top score {top_score} < 0.50 threshold gate!")
+        return 1
+    print("  OK: Core relevance score well above threshold gate (>= 0.50)")
+
+    # Negative control: irrelevant query
+    neg_payload = {
+        "query": "recipe for chocolate cake",
+        "limit": 3,
+    }
+    status, neg_resp = http_post(
+        f"{base_url}/api/v1/search/find",
+        neg_payload,
+        headers={"X-API-Key": user_api_key},
+    )
+    if status != 200:
+        print(f"FAILED: Negative control query failed with HTTP {status}: {neg_resp}")
+        return 1
+    neg_memories = neg_resp.get("result", {}).get("memories", [])
+    if len(neg_memories) != 0:
+        print(f"FAILED: Negative control query leaked {len(neg_memories)} memories above threshold: {neg_memories}")
+        return 1
+    print("  OK: Negative control completely filtered out by score threshold (0 hits)")
+
     print("\n" + "=" * 60)
-    print("ALL CANARY CHECKS PASSED: Observability & Resilience Verified")
+    print("ALL CANARY CHECKS PASSED: Observability, Resilience & Quality Verified")
     print("=" * 60)
     return 0
 
