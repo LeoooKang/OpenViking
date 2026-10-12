@@ -1,6 +1,7 @@
 # 2026-10-12 re-baseline: self-audit report ingested 09:41:17 legitimately outranks phase-1 snapshot (corpus-epoch event, not a regression). Authorized by arbiter.
-version: "1.0.1"
-description: "Canonical golden set for OpenViking retrieval quality evaluation (P-20261011-04 Phase 3)"
+# Extended 2026-10-12: P-20261012-03 Phase 1 adds knowledge-update (temporal supersession) and cross-actor leakage checks.
+version: "1.1.0"
+description: "Canonical golden set for OpenViking retrieval quality evaluation (P-20261011-04 + P-20261012-03 Phase 1)"
 metadata:
   created_at: "2026-10-12"
   target_subsystem: "OpenViking Semantic Search & Context Retrieval"
@@ -146,4 +147,29 @@ queries:
   - id: "Q25"
     category: "noise"
     query: "how to train a giraffe to dance the tango"
+    expected_uris: []
+
+  # Category 6: Knowledge Updates (Temporal & Supersession)
+  - id: "Q26"
+    category: "knowledge-update"
+    query: "working memory server-side default enablement status"
+    expected_uris:
+      - "viking://user/monica/memories/task-P-20261012-02-vlm-unlimited-budget-phase-snapshot.md"
+  - id: "Q27"
+    category: "knowledge-update"
+    query: "MiniMax VLM max output token budget configuration"
+    expected_uris:
+      - "viking://user/monica/memories/task-P-20261012-02-vlm-unlimited-budget-phase-snapshot.md"
+  - id: "Q28"
+    category: "knowledge-update"
+    query: "local MLX reranker status and cloud routing cutover"
+    expected_uris:
+      - "viking://user/monica/memories/events/2026/10/09/P-20261008-02-new-api-reranker-pool-deployment.md"
+      - "viking://user/monica/memories/task-T-20261008-01-bake-off-decision-snapshot.md"
+      - "viking://user/monica/memories/task-P-20261011-01-phase-snapshot.md"
+
+  # Category 7: Cross-Actor Isolation & Leakage Controls
+  - id: "Q29"
+    category: "leakage"
+    query: "Mendel internal GEP daemon private genetic memory state"
     expected_uris: []
