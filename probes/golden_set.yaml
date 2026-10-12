@@ -1,6 +1,7 @@
+# 2026-10-12 re-baseline: Q13 rank-1 authority confirmed (miss->hit 0.9650) following Phase 1 corpus indexing. Authorized by arbiter.
 # 2026-10-12 re-baseline: self-audit report ingested 09:41:17 legitimately outranks phase-1 snapshot (corpus-epoch event, not a regression). Authorized by arbiter.
 # Extended 2026-10-12: P-20261012-03 Phase 1 adds knowledge-update (temporal supersession) and cross-actor leakage checks.
-version: "1.1.0"
+version: "1.1.1"
 description: "Canonical golden set for OpenViking retrieval quality evaluation (P-20261011-04 + P-20261012-03 Phase 1)"
 metadata:
   created_at: "2026-10-12"
