@@ -91,7 +91,7 @@ class MemoryPolicy:
     self_enabled: bool = True
     peer_enabled: bool = True
     memory_types: Optional[set[str]] = None
-    enable_working_memory: bool = False
+    enable_working_memory: bool = True
 
     @classmethod
     def default(cls) -> "MemoryPolicy":
@@ -115,7 +115,7 @@ class MemoryPolicy:
             peer_enabled=_target_enabled(data.get("peer"), default_enabled=True, key="peer"),
             memory_types=_parse_memory_types(data.get("memory_types")),
             enable_working_memory=_target_enabled(
-                data.get("working_memory"), default_enabled=False, key="working_memory"
+                data.get("working_memory"), default_enabled=True, key="working_memory"
             ),
         )
 

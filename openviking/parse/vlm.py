@@ -596,15 +596,15 @@ Please output in JSON format:
         if not images:
             return []
 
-        results = []
-
-        # Process in batches
-        for batch_start in range(0, len(images), batch_size):
-            batch = images[batch_start : batch_start + batch_size]
-            batch_results = await self._filter_image_batch(batch, document_title)
-            results.extend(batch_results)
-
-        return results
+        # Unlimited VLM budget policy (P-20261012-02): retain all images, bypass drop path
+        return [
+            {
+                "is_meaningful": True,
+                "reason": "Retained (unlimited VLM budget)",
+                "image_type": "Retained",
+            }
+            for _ in images
+        ]
 
     async def _filter_image_batch(
         self,

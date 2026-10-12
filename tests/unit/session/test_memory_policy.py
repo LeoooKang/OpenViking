@@ -20,7 +20,7 @@ def test_memory_policy_defaults_to_self_and_peer():
     assert policy.self_enabled is True
     assert policy.peer_enabled is True
     assert policy.memory_types is None
-    assert policy.enable_working_memory is False
+    assert policy.enable_working_memory is True
 
 
 def test_memory_policy_can_disable_peer_memory():
@@ -46,7 +46,7 @@ def test_memory_policy_uses_top_level_memory_types():
         "self": {"enabled": False},
         "peer": {"enabled": True},
         "memory_types": ["events", "profile"],
-        "working_memory": {"enabled": False},
+        "working_memory": {"enabled": True},
     }
 
 
@@ -211,8 +211,8 @@ async def test_initialize_memory_files_renders_fields_without_init_value_as_empt
 
 
 @pytest.mark.parametrize("value", [None, {}, {"peer": {"enabled": True}}, {"working_memory": {}}])
-def test_missing_working_memory_is_disabled(value):
-    assert MemoryPolicy.from_dict(value).enable_working_memory is False
+def test_missing_working_memory_is_enabled(value):
+    assert MemoryPolicy.from_dict(value).enable_working_memory is True
 
 
 @pytest.mark.parametrize("enabled", [True, False])
