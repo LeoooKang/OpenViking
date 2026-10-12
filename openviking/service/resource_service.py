@@ -1951,6 +1951,13 @@ class ResourceService:
             path = require_remote_resource_source(path)
             kwargs.setdefault("request_validator", ensure_public_remote_target)
 
+        telemetry = get_current_telemetry()
+        telemetry.set("resource.flags.build_index", build_index)
+        telemetry.set("resource.flags.summarize", summarize)
+        watch_manager = self._get_watch_manager()
+        watch_enabled = bool(watch_manager and manage_watch and watch_interval > 0)
+        telemetry.set("resource.flags.watch_enabled", watch_enabled)
+
         async with feishu_auth_scope(
             connector, path=path, ctx=ctx, args=kwargs, state=normalized_args.watch_auth_state
         ) as watch_auth_state:
