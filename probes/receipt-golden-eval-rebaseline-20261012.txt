@@ -1,0 +1,52 @@
+=== OpenViking Golden Retrieval Evaluation Re-Baseline Receipt ===
+Date: 2026-10-12T10:23:05+08:00
+Target Subsystem: OpenViking Semantic Search & Context Retrieval (127.0.0.1:1933)
+Trigger: Arbiter Approval (Option A Re-baselining, P-20261011-04 residual decision)
+Corpus-Epoch Marker: Post self-audit report ingestion (viking://user/monica/memories/task-P-20261011-04-self-audit-report.md)
+Golden Set Version: 1.0.1 (probes/golden_set.yaml)
+
+Command Run:
+$ ~/.hermes/hermes-agent/venv/bin/python3 ~/Cowork/projects/openviking/probes/golden_retrieval_eval.py
+
+Loaded 25 queries from /Users/leooo/Cowork/projects/openviking/probes/golden_set.yaml
+Evaluating against OpenViking at http://127.0.0.1:1933...
+--------------------------------------------------------------------------------
+ID   | Cat       | Top-1 Score | Hit?  | Rank | Query
+--------------------------------------------------------------------------------
+Q01  | history   | 0.9987      | True  | 1    | language perimeter ruling D-8
+Q02  | history   | 0.9903      | True  | 1    | mode hygiene baseline drop D-1
+Q03  | history   | 0.9992      | True  | 1    | proposal P-20260927-01 cancellation
+Q04  | history   | 0.9978      | False | -    | per-agent user accounts architecture T-2
+Q05  | history   | 0.9943      | True  | 2    | archived subfolder support T-20260830-05
+Q06  | error     | 0.9988      | True  | 1    | ov CLI tenant routing error
+Q07  | error     | 0.9993      | True  | 1    | containerized member onboarding gap post
+Q08  | error     | 0.9938      | True  | 1    | persona status staleness after provision
+Q09  | error     | 0.9987      | True  | 1    | bash sandbox git write failure in agents
+Q10  | error     | 0.9990      | True  | 1    | citation drift line referenced reports e
+Q11  | error     | 0.9673      | True  | 1    | sampling controls unverified against sam
+Q12  | error     | 0.9998      | True  | 1    | agent tools whitelist filters MCP tools 
+Q13  | memory    | 0.9668      | True  | 1    | Phase 1 observability hardening snapshot
+Q14  | memory    | 0.9988      | True  | 1    | Phase 2 storage resilience snapshot Moni
+Q15  | memory    | 0.9902      | False | -    | OpenViking multi-write check canary
+Q16  | memory    | 0.9957      | True  | 1    | OpenViking full capability rollout chart
+Q17  | protocol  | 0.4428      | False | -    | three-agent collaboration system roles a
+Q18  | structure | 0.9527      | False | -    | governance receipts and adjudication reg
+Q19  | structure | 0.9628      | False | -    | defect schema for recording reproducible
+Q20  | structure | 0.9524      | True  | 5    | task-wiki architecture and project docum
+Q21  | structure | 0.8860      | True  | 1    | subagents execution workspace
+Q22  | noise     | 0.0000      | N/A   | -    | weather forecast for Mars rover in 2040 [NOISE]
+Q23  | noise     | 0.0000      | N/A   | -    | recipe for authentic Neapolitan pizza do [NOISE]
+Q24  | noise     | 0.0000      | N/A   | -    | quantum entanglement cryptographic key e [NOISE]
+Q25  | noise     | 0.0000      | N/A   | -    | how to train a giraffe to dance the tang [NOISE]
+================================================================================
+EVALUATION METRICS SUMMARY
+  Recall@1:           66.7% (14/21)
+  Recall@3:           71.4% (15/21)
+  Recall@5:           76.2% (16/21)
+  MRR:                0.7000
+  Pos Top-1 Avg:      0.9564
+  Noise Top-1 Avg:    0.0000
+  Score Separation:   0.9564
+================================================================================
+
+Verification Verdict: PASS (Recall@1 = 66.7%, zero noise false positives, score separation = 0.9564)
