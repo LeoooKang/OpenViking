@@ -5,7 +5,7 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Any, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from openviking.parse.gitignore import GitignoreMatcher
 from openviking.parse.output import (
@@ -21,6 +21,7 @@ from openviking.parse.parsers.constants import (
     IGNORE_EXTENSIONS,
 )
 from openviking.parse.parsers.text_encoding import normalize_text_bytes
+from openviking.telemetry import get_current_telemetry
 from openviking.utils.content_hash import content_md5
 from openviking_cli.utils.logger import get_logger
 
@@ -118,6 +119,14 @@ def should_skip_file(
 
 
 _UPLOAD_CONCURRENCY = 8
+_UPLOAD_WRITE_RETRIES = 2
+
+
+def _is_transient_serialization_error(exc: Exception) -> bool:
+    """Return True when exc is a transient AGFS .sync_log.json serialization error."""
+    if type(exc).__name__ == "AGFSSerializationError":
+        return True
+    return "serialization error" in str(exc).lower()
 
 
 async def upload_directory(
@@ -167,7 +176,7 @@ async def upload_directory(
 
     # --- Phase 1: Collect files and their artifact-relative parent dirs ---
     base = base_rel.strip("/")
-    files_to_upload: List[Tuple[Path, str]] = []
+    files_to_upload: List[Tuple[Path, str, str]] = []
     parent_dirs: Set[str] = set()
 
     for root, dirs, files in os.walk(local_dir):
@@ -218,7 +227,7 @@ async def upload_directory(
             # Artifact-relative path under the resource root; the store resolves it
             # to a local/agfs location.
             target = f"{base}/{rel_path_str}" if base else rel_path_str
-            files_to_upload.append((file_path, target))
+            files_to_upload.append((file_path, rel_path_str, target))
             if "/" in target:
                 parent_dirs.add(target.rsplit("/", 1)[0])
 
@@ -231,13 +240,17 @@ async def upload_directory(
         except Exception as e:
             logger.warning(f"Failed to create artifact directory {rel_dir}: {e}")
 
-    # --- Phase 3: Upload files concurrently ---
+    # --- Phase 3: Upload files concurrently (serialized per parent dir) ---
     sem = asyncio.Semaphore(_UPLOAD_CONCURRENCY)
+    dir_locks: Dict[str, asyncio.Lock] = {
+        rel_dir: asyncio.Lock() for rel_dir in (parent_dirs | {""})
+    }
     errors: List[Optional[str]] = [None] * len(files_to_upload)
+    skipped_entries: List[Optional[Dict[str, str]]] = [None] * len(files_to_upload)
     # rel_path -> md5 of final bytes, collected for the manifest.
     md5_by_target: dict[str, str] = {}
 
-    async def _upload_one(idx: int, file_path: Path, target: str) -> None:
+    async def _upload_one(idx: int, file_path: Path, rel_path_str: str, target: str) -> None:
         async with sem:
 
             def _read_and_encode() -> bytes:
@@ -246,25 +259,67 @@ async def upload_directory(
 
             try:
                 encoded = await asyncio.to_thread(_read_and_encode)
-                await store.write_bytes(artifact_ref, target, encoded)
-                # Fingerprint the final (normalized) bytes at the write point; this
-                # is a local read, no extra remote IO.
-                md5_by_target[target] = content_md5(encoded)
             except Exception as exc:
-                errors[idx] = f"Failed to upload {file_path}: {exc}"
+                skipped_entries[idx] = {
+                    "path": rel_path_str,
+                    "file_path": str(file_path),
+                    "reason": str(exc),
+                }
+                return
 
-    await asyncio.gather(*[_upload_one(i, fp, tgt) for i, (fp, tgt) in enumerate(files_to_upload)])
+            parent_dir = target.rsplit("/", 1)[0] if "/" in target else ""
+            dir_lock = dir_locks.setdefault(parent_dir, asyncio.Lock())
+            async with dir_lock:
+                for attempt in range(_UPLOAD_WRITE_RETRIES + 1):
+                    try:
+                        await store.write_bytes(artifact_ref, target, encoded)
+                        # Fingerprint the final (normalized) bytes at the write point; this
+                        # is a local read, no extra remote IO.
+                        md5_by_target[target] = content_md5(encoded)
+                        return
+                    except Exception as exc:
+                        if (
+                            attempt < _UPLOAD_WRITE_RETRIES
+                            and _is_transient_serialization_error(exc)
+                        ):
+                            await asyncio.sleep(0.02 * (attempt + 1))
+                            continue
+                        if isinstance(exc, OSError):
+                            errors[idx] = f"Failed to upload {file_path}: {exc}"
+                        else:
+                            skipped_entries[idx] = {
+                                "path": rel_path_str,
+                                "file_path": str(file_path),
+                                "reason": str(exc),
+                            }
+                        return
+
+    await asyncio.gather(
+        *[_upload_one(i, fp, rel, tgt) for i, (fp, rel, tgt) in enumerate(files_to_upload)]
+    )
+
+    uploaded_count = len(md5_by_target)
+    skipped_files: List[Dict[str, str]] = []
+    for entry in skipped_entries:
+        if entry is not None:
+            logger.warning(f"Failed to upload {entry['file_path']} (skipped): {entry['reason']}")
+            skipped_files.append({"path": entry["path"], "reason": entry["reason"]})
+            if uploaded_count == 0:
+                warnings.append(f"Failed to upload {entry['file_path']}: {entry['reason']}")
 
     for err in errors:
         if err:
             warnings.append(err)
             logger.warning(err)
 
+    telemetry = get_current_telemetry()
+    telemetry.set("resource.upload.skipped_files", skipped_files)
+    telemetry.set("resource.upload.skipped_count", len(skipped_files))
+
     # Persist the md5 manifest at the artifact root so the incremental diff can
-    # compare fingerprints without re-reading files. Only write it when every file
-    # uploaded cleanly, so a partial manifest never masquerades as complete.
-    if not any(errors):
+    # compare fingerprints without re-reading files. Write it when no store-level
+    # errors occurred and at least one file uploaded (or the directory had no skipped files).
+    if not any(errors) and (uploaded_count > 0 or not skipped_files):
         await write_artifact_manifest(store, artifact_ref, md5_by_target)
 
-    uploaded_count = sum(1 for e in errors if e is None)
     return uploaded_count, warnings

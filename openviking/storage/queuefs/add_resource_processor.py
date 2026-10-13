@@ -313,9 +313,36 @@ class AddResourceProcessor(DequeueHandlerBase):
                 )
                 telemetry.set("resource.total.duration_ms", telemetry.elapsed_ms())
 
+                raw_skipped = getattr(telemetry, "_gauges", {}).get(
+                    "resource.upload.skipped_files"
+                )
+                if raw_skipped is None and isinstance(result.get("meta"), dict):
+                    raw_skipped = result["meta"].get("skipped_files")
+                skipped_files = list(raw_skipped) if isinstance(raw_skipped, list) else []
+
                 # Extract token usage summary from telemetry and inject into result
                 _snapshot = telemetry.finish()
                 if _snapshot is not None:
+                    if skipped_files or "resource.upload.skipped_files" in getattr(
+                        telemetry, "_gauges", {}
+                    ):
+                        resource_section = _snapshot.summary.setdefault("resource", {})
+                        resource_section["skipped_files"] = skipped_files
+                        if skipped_files:
+                            resource_section["skipped_count"] = len(skipped_files)
+                    if skipped_files:
+                        result["skipped_files"] = skipped_files
+                        logger.warning(
+                            "[AddResourceSkippedFiles] %s root=%s skipped_count=%d skipped_files=%s",
+                            log_correlation(
+                                task_id=msg.task_id,
+                                telemetry_id=telemetry_id,
+                                message_id=queue_message_id,
+                            ),
+                            result.get("root_uri"),
+                            len(skipped_files),
+                            skipped_files,
+                        )
                     result["telemetry"] = _snapshot.to_dict(include_summary=True)
                     _tokens = _snapshot.summary.get("tokens", {})
                     if _tokens:

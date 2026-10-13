@@ -449,6 +449,208 @@ class TestUploadDirectoryEdgeCases:
         assert len(warnings) == 1
         assert "store write error" in warnings[0]
 
+    @pytest.mark.asyncio
+    async def test_per_file_fault_isolation_skips_unparseable_file_and_records_telemetry(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        from openviking.parse.parsers.upload_utils import ARTIFACT_MANIFEST_NAME
+        from openviking.pyagfs.exceptions import AGFSSerializationError
+        from openviking.telemetry import OperationTelemetry, bind_telemetry
+
+        (tmp_path / "hello.py").write_text("print('ok')", encoding="utf-8")
+        locales = tmp_path / "examples" / "locales"
+        locales.mkdir(parents=True)
+        (locales / "de.json").write_text('{"a": 1}', encoding="utf-8")
+        (locales / "pt.json").write_text('{"b": 2}', encoding="utf-8")
+
+        class _SingleFileSerializationFailingStore(_RecordingStore):
+            async def write_bytes(self, ref, rel_path: str, content: bytes) -> None:
+                if rel_path == "repo/examples/locales/pt.json":
+                    raise AGFSSerializationError(
+                        "serialization error: trailing characters at line 1 column 663"
+                    )
+                await super().write_bytes(ref, rel_path, content)
+
+        store = _SingleFileSerializationFailingStore()
+        telemetry = OperationTelemetry(operation="add_resource_job", enabled=True)
+
+        with bind_telemetry(telemetry):
+            count, warnings = await upload_directory(
+                tmp_path, "repo", store=store, artifact_ref=object()
+            )
+
+        assert count == 2
+        assert warnings == []
+        assert ARTIFACT_MANIFEST_NAME in store.writes
+        manifest = json.loads(store.writes[ARTIFACT_MANIFEST_NAME].decode("utf-8"))
+        assert "repo/hello.py" in manifest
+        assert "repo/examples/locales/de.json" in manifest
+        assert "repo/examples/locales/pt.json" not in manifest
+        assert telemetry._gauges.get("resource.upload.skipped_count") == 1
+        assert telemetry._gauges.get("resource.upload.skipped_files") == [
+            {
+                "path": "examples/locales/pt.json",
+                "reason": "serialization error: trailing characters at line 1 column 663",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_transient_serialization_error_retried_and_succeeds(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        from openviking.parse.parsers.upload_utils import ARTIFACT_MANIFEST_NAME
+        from openviking.pyagfs.exceptions import AGFSSerializationError
+        from openviking.telemetry import OperationTelemetry, bind_telemetry
+
+        locales = tmp_path / "examples" / "locales"
+        locales.mkdir(parents=True)
+        (locales / "de.json").write_text('{"a": 1}', encoding="utf-8")
+        (locales / "pt.json").write_text('{"b": 2}', encoding="utf-8")
+
+        class _FlakySerializationStore(_RecordingStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.pt_attempts = 0
+
+            async def write_bytes(self, ref, rel_path: str, content: bytes) -> None:
+                if rel_path == "repo/examples/locales/pt.json":
+                    self.pt_attempts += 1
+                    if self.pt_attempts == 1:
+                        raise AGFSSerializationError(
+                            "serialization error: trailing characters at line 1 column 663"
+                        )
+                await super().write_bytes(ref, rel_path, content)
+
+        store = _FlakySerializationStore()
+        telemetry = OperationTelemetry(operation="add_resource_job", enabled=True)
+
+        with bind_telemetry(telemetry):
+            count, warnings = await upload_directory(
+                tmp_path, "repo", store=store, artifact_ref=object()
+            )
+
+        assert count == 2
+        assert warnings == []
+        assert store.pt_attempts == 2
+        manifest = json.loads(store.writes[ARTIFACT_MANIFEST_NAME].decode("utf-8"))
+        assert "repo/examples/locales/pt.json" in manifest
+        assert telemetry._gauges.get("resource.upload.skipped_files") == []
+
+    @pytest.mark.asyncio
+    async def test_same_directory_writes_are_serialized(self, tmp_path: Path) -> None:
+        import asyncio
+
+        from openviking.parse.parsers.upload_utils import ARTIFACT_MANIFEST_NAME
+
+        locales = tmp_path / "examples" / "locales"
+        locales.mkdir(parents=True)
+        for name in ("de.json", "es.json", "fr.json", "it.json", "pt.json"):
+            (locales / name).write_text(f'{{"locale": "{name}"}}', encoding="utf-8")
+
+        class _ConcurrencyCheckingStore(_RecordingStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.in_flight_by_dir: dict[str, int] = {}
+                self.max_in_flight_by_dir: dict[str, int] = {}
+
+            async def write_bytes(self, ref, rel_path: str, content: bytes) -> None:
+                if rel_path != ARTIFACT_MANIFEST_NAME:
+                    parent = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
+                    cur = self.in_flight_by_dir.get(parent, 0) + 1
+                    self.in_flight_by_dir[parent] = cur
+                    self.max_in_flight_by_dir[parent] = max(
+                        self.max_in_flight_by_dir.get(parent, 0), cur
+                    )
+                    try:
+                        await asyncio.sleep(0.005)
+                        await super().write_bytes(ref, rel_path, content)
+                    finally:
+                        self.in_flight_by_dir[parent] -= 1
+                else:
+                    await super().write_bytes(ref, rel_path, content)
+
+        store = _ConcurrencyCheckingStore()
+        count, warnings = await upload_directory(
+            tmp_path, "repo", store=store, artifact_ref=object()
+        )
+
+        assert count == 5
+        assert warnings == []
+        assert store.max_in_flight_by_dir.get("repo/examples/locales") == 1
+
+    @pytest.mark.asyncio
+    async def test_add_resource_processor_surfaces_skipped_files_in_telemetry(
+        self, monkeypatch
+    ) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, Mock
+
+        from openviking.service.task_tracker import TaskStatus
+        from openviking.service.task_work_index import TASK_WORK_ID_FIELD
+        from openviking.storage.queuefs.add_resource_msg import AddResourceMsg
+        from openviking.storage.queuefs.add_resource_processor import AddResourceProcessor
+        from openviking.telemetry import get_current_telemetry
+
+        final_uri = "viking://resources/LeoooKang/agents-skills"
+        task_tracker = SimpleNamespace(
+            create=AsyncMock(return_value=SimpleNamespace(status=TaskStatus.PENDING)),
+            start=AsyncMock(),
+            update_stage=AsyncMock(),
+            complete=AsyncMock(),
+            fail=AsyncMock(),
+            get_task_auth=AsyncMock(return_value={}),
+            wait_for_descendants=AsyncMock(),
+        )
+        monkeypatch.setattr(
+            "openviking.storage.queuefs.add_resource_processor.get_task_tracker",
+            Mock(return_value=task_tracker),
+        )
+
+        skipped_payload = [
+            {
+                "path": "local/skills/archify/examples/locales/pt.json",
+                "reason": "serialization error: trailing characters at line 1 column 663",
+            }
+        ]
+
+        async def execute_add_resource_job(*_args, **_kwargs):
+            telemetry = get_current_telemetry()
+            telemetry.set("resource.upload.skipped_files", skipped_payload)
+            telemetry.set("resource.upload.skipped_count", len(skipped_payload))
+            return {"status": "success", "root_uri": final_uri}
+
+        processor = AddResourceProcessor(
+            SimpleNamespace(
+                execute_add_resource_job=AsyncMock(side_effect=execute_add_resource_job),
+                _link_resource_reason_memory=AsyncMock(),
+            ),
+            "add_resource",
+            SimpleNamespace(_async_agfs=SimpleNamespace(pathlock_release=AsyncMock())),
+        )
+        msg = AddResourceMsg(
+            task_id="task-skipped-telemetry",
+            path="https://github.com/LeoooKang/agents-skills.git",
+            root_uri=final_uri,
+            account_id="default",
+            user_id="default",
+            role="root",
+        )
+        data = msg.to_dict()
+        data[TASK_WORK_ID_FIELD] = "work-skipped"
+
+        await processor._process(msg, data)
+
+        task_tracker.fail.assert_not_awaited()
+        final_result = task_tracker.complete.await_args_list[-1].args[1]
+        assert final_result["skipped_files"] == skipped_payload
+        resource_telemetry = final_result["telemetry"]["summary"]["resource"]
+        assert resource_telemetry["skipped_files"] == skipped_payload
+        assert resource_telemetry["skipped_count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # sanitize_relative_viking_path (additional edge cases)
