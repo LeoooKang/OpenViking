@@ -80,6 +80,7 @@ def run_eval(golden_file: Path, output_file: Path = None):
     queries = golden_data.get("queries", [])
     positive_results = []
     noise_results = []
+    leakage_results = []
 
     print(f"Loaded {len(queries)} queries from {golden_file}")
     print(f"Evaluating against OpenViking at {base_url}...")
@@ -123,8 +124,27 @@ def run_eval(golden_file: Path, output_file: Path = None):
             })
             rank_str = str(hit_rank) if hit_rank is not None else "-"
             print(f"{qid:<4} | {category:<9} | {top_score:<11.4f} | {str(is_hit):<5} | {rank_str:<4} | {query_text[:40]}")
+        elif category == "leakage" or item.get("target_scope") == "private_memory":
+            # Leakage evaluation: checks whether any private memory from other actors leaks.
+            # Hits in shared viking://resources/ are public lore and excluded from leakage score.
+            private_hits = [h for h in hits if not h.get("uri", "").startswith("viking://resources/")]
+            shared_hits = [h for h in hits if h.get("uri", "").startswith("viking://resources/")]
+
+            private_top_score = private_hits[0].get("score", 0.0) if private_hits else 0.0
+            shared_top_score = shared_hits[0].get("score", 0.0) if shared_hits else 0.0
+
+            leakage_results.append({
+                "id": qid,
+                "category": category,
+                "query": query_text,
+                "private_top_score": private_top_score,
+                "shared_top_score": shared_top_score,
+                "hits_returned": len(hits),
+            })
+            shared_info = f" [SHARED: {shared_top_score:.4f}]" if shared_top_score > 0 else " [ISOLATED]"
+            print(f"{qid:<4} | {category:<9} | {private_top_score:<11.4f} | {'N/A':<5} | {'-':<4} | {query_text[:40]}{shared_info}")
         else:
-            # Noise query
+            # Negative / Noise query
             noise_results.append({
                 "id": qid,
                 "category": category,
@@ -143,18 +163,21 @@ def run_eval(golden_file: Path, output_file: Path = None):
 
     pos_avg_score = sum(r["top_score"] for r in positive_results) / total_pos if total_pos else 0
     noise_avg_score = sum(r["top_score"] for r in noise_results) / len(noise_results) if noise_results else 0
+    leakage_avg_score = sum(r["private_top_score"] for r in leakage_results) / len(leakage_results) if leakage_results else 0
     score_sep = pos_avg_score - noise_avg_score
 
     metrics = {
         "total_queries": len(queries),
         "positive_queries": total_pos,
         "noise_queries": len(noise_results),
+        "leakage_queries": len(leakage_results),
         "recall_at_1": round(r1, 4),
         "recall_at_3": round(r3, 4),
         "recall_at_5": round(r5, 4),
         "mrr": round(mrr, 4),
         "positive_avg_score": round(pos_avg_score, 4),
         "noise_avg_score": round(noise_avg_score, 4),
+        "leakage_avg_score": round(leakage_avg_score, 4),
         "score_separation": round(score_sep, 4),
     }
 
@@ -166,6 +189,8 @@ def run_eval(golden_file: Path, output_file: Path = None):
     print(f"  MRR:                {metrics['mrr']:.4f}")
     print(f"  Pos Top-1 Avg:      {metrics['positive_avg_score']:.4f}")
     print(f"  Noise Top-1 Avg:    {metrics['noise_avg_score']:.4f}")
+    if leakage_results:
+        print(f"  Leakage Top-1 Avg:  {metrics['leakage_avg_score']:.4f}")
     print(f"  Score Separation:   {metrics['score_separation']:.4f}")
     print("=" * 80)
 
@@ -174,6 +199,7 @@ def run_eval(golden_file: Path, output_file: Path = None):
             "metrics": metrics,
             "positive_results": positive_results,
             "noise_results": noise_results,
+            "leakage_results": leakage_results,
         }
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(output_payload, f, indent=2)
