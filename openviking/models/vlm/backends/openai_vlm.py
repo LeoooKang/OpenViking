@@ -83,6 +83,7 @@ class OpenAIVLM(VLMBase):
         self._async_client_cache = LoopScopedAsyncClientCache()
         self.api_version = config.get("api_version")
         self.reasoning_effort = config.get("reasoning_effort")
+        self.output_effort = config.get("output_effort")
         self.keepalive_expiry = config.get("keepalive_expiry")
 
     def _http_client_kwargs(self) -> Dict[str, Any]:
@@ -180,7 +181,11 @@ class OpenAIVLM(VLMBase):
         return host.lower() in _DASHSCOPE_HOSTS
 
     def _apply_completion_params(
-        self, kwargs: Dict[str, Any], thinking: bool, max_tokens: Optional[int] = None
+        self,
+        kwargs: Dict[str, Any],
+        thinking: bool,
+        max_tokens: Optional[int] = None,
+        output_effort: Optional[str] = None,
     ) -> None:
         """Apply model defaults, explicit settings, and provider-specific body fields."""
         if _OPENAI_REASONING_MODEL_PATTERN.match(kwargs["model"].lower()):
@@ -196,9 +201,15 @@ class OpenAIVLM(VLMBase):
         if self.reasoning_effort is not None:
             kwargs["reasoning_effort"] = self.reasoning_effort
 
+        effective_output_effort = output_effort if output_effort is not None else self.output_effort
         extra_body = dict(self.extra_request_body)
         if self._supports_enable_thinking():
             extra_body["enable_thinking"] = bool(thinking)
+        if effective_output_effort:
+            output_config = dict(extra_body.get("output_config") or {})
+            output_config["effort"] = effective_output_effort
+            extra_body["output_config"] = output_config
+            tracer.info(f"OpenAIVLM: applied output_config.effort={effective_output_effort}")
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -276,6 +287,7 @@ class OpenAIVLM(VLMBase):
         messages: Optional[List[Dict[str, Any]]] = None,
         thinking: Optional[bool] = None,
         max_tokens: Optional[int] = None,
+        output_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         effective_thinking = self.thinking if thinking is None else thinking
         kwargs_messages = sanitize_openai_messages(
@@ -286,7 +298,12 @@ class OpenAIVLM(VLMBase):
             "model": model,
             "messages": kwargs_messages,
         }
-        self._apply_completion_params(kwargs, effective_thinking, max_tokens=max_tokens)
+        self._apply_completion_params(
+            kwargs,
+            effective_thinking,
+            max_tokens=max_tokens,
+            output_effort=output_effort,
+        )
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
@@ -300,6 +317,7 @@ class OpenAIVLM(VLMBase):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         thinking: Optional[bool] = None,
+        output_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         effective_thinking = self.thinking if thinking is None else thinking
         if messages:
@@ -317,7 +335,11 @@ class OpenAIVLM(VLMBase):
             "model": model,
             "messages": kwargs_messages,
         }
-        self._apply_completion_params(kwargs, effective_thinking)
+        self._apply_completion_params(
+            kwargs,
+            effective_thinking,
+            output_effort=output_effort,
+        )
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
@@ -340,11 +362,19 @@ class OpenAIVLM(VLMBase):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        output_effort: Optional[str] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion"""
         effective_thinking = self.thinking if thinking is None else thinking
         client = self.get_client()
-        kwargs = self._build_text_kwargs(prompt, tools, tool_choice, messages, effective_thinking)
+        kwargs = self._build_text_kwargs(
+            prompt,
+            tools,
+            tool_choice,
+            messages,
+            effective_thinking,
+            output_effort=output_effort,
+        )
 
         def _call() -> Union[str, VLMResponse]:
             t0 = time.perf_counter()
@@ -370,12 +400,19 @@ class OpenAIVLM(VLMBase):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
+        output_effort: Optional[str] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion asynchronously"""
         effective_thinking = self.thinking if thinking is None else thinking
         client = self.get_async_client()
         kwargs = self._build_text_kwargs(
-            prompt, tools, tool_choice, messages, effective_thinking, max_tokens=max_tokens
+            prompt,
+            tools,
+            tool_choice,
+            messages,
+            effective_thinking,
+            max_tokens=max_tokens,
+            output_effort=output_effort,
         )
 
         async def _call() -> Union[str, VLMResponse]:

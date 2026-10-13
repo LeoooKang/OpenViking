@@ -119,3 +119,47 @@ class TestOpenAIVisionCompletionParams:
         assert kwargs["max_tokens"] == 1024
         assert "max_completion_tokens" not in kwargs
         assert kwargs["temperature"] == 0.2
+
+
+class TestOpenAIOutputEffortParams:
+    """output_effort configuration for MiniMax and compatible models."""
+
+    def test_output_effort_via_vlm_config(self):
+        vlm = VLMConfig(
+            provider="openai",
+            model="MiniMax-M3.1-Flash-Preview",
+            api_key="sk-test",
+            api_base="https://api.minimaxi.com/v1",
+            output_effort="max",
+        ).get_vlm_instance()
+        kwargs = vlm._build_text_kwargs(prompt="hello")
+        assert kwargs["extra_body"] == {"output_config": {"effort": "max"}}
+
+    def test_output_effort_preserves_existing_extra_request_body(self):
+        vlm = OpenAIVLM(
+            {
+                "api_key": "sk-test",
+                "model": "MiniMax-M3.1-Flash-Preview",
+                "api_base": "https://api.minimaxi.com/v1",
+                "extra_request_body": {"custom_flag": True},
+                "output_effort": "high",
+            }
+        )
+        kwargs = vlm._build_text_kwargs(prompt="hello")
+        assert kwargs["extra_body"] == {
+            "custom_flag": True,
+            "output_config": {"effort": "high"},
+        }
+
+    def test_output_effort_per_call_override(self):
+        vlm = OpenAIVLM(
+            {
+                "api_key": "sk-test",
+                "model": "MiniMax-M3.1-Flash-Preview",
+                "api_base": "https://api.minimaxi.com/v1",
+                "output_effort": "low",
+            }
+        )
+        kwargs = vlm._build_text_kwargs(prompt="hello", output_effort="max")
+        assert kwargs["extra_body"] == {"output_config": {"effort": "max"}}
+

@@ -84,6 +84,10 @@ class VLMCredential(BaseModel):
         default=None,
         description="Reasoning effort for OpenAI-compatible reasoning models",
     )
+    output_effort: Optional[str] = RuntimeField(
+        default=None,
+        description="Thinking effort tier for models supporting output_config.effort (e.g. MiniMax)",
+    )
     keepalive_expiry: Optional[float] = RuntimeField(
         default=None,
         ge=0.0,
@@ -223,6 +227,10 @@ class VLMConfig(BaseModel):
     reasoning_effort: Optional[str] = Field(
         default=None,
         description="Reasoning effort for OpenAI-compatible reasoning models",
+    )
+    output_effort: Optional[str] = Field(
+        default=None,
+        description="Thinking effort tier for models supporting output_config.effort (e.g. MiniMax)",
     )
 
     # New multi-credential configuration
@@ -577,6 +585,8 @@ class VLMConfig(BaseModel):
             config["extra_request_body"] = self.extra_request_body
         if self.reasoning_effort and "reasoning_effort" not in config:
             config["reasoning_effort"] = self.reasoning_effort
+        if self.output_effort and "output_effort" not in config:
+            config["output_effort"] = self.output_effort
         if self.keepalive_expiry is not None and "keepalive_expiry" not in config:
             config["keepalive_expiry"] = self.keepalive_expiry
         return config
@@ -608,6 +618,8 @@ class VLMConfig(BaseModel):
             config["extra_request_body"] = cred.extra_request_body
         if cred.reasoning_effort:
             config["reasoning_effort"] = cred.reasoning_effort
+        if cred.output_effort:
+            config["output_effort"] = cred.output_effort
         if cred.keepalive_expiry is not None:
             config["keepalive_expiry"] = cred.keepalive_expiry
         return config
@@ -750,6 +762,10 @@ class VLMConfig(BaseModel):
             result["extra_request_body"] = credential.extra_request_body
         if credential.reasoning_effort:
             result["reasoning_effort"] = credential.reasoning_effort
+        if credential.output_effort:
+            result["output_effort"] = credential.output_effort
+        elif self.output_effort:
+            result["output_effort"] = self.output_effort
 
         return result
 
@@ -787,6 +803,11 @@ class VLMConfig(BaseModel):
                 result["extra_request_body"] = config.get("extra_request_body")
             if config.get("reasoning_effort"):
                 result["reasoning_effort"] = config.get("reasoning_effort")
+            if config.get("output_effort"):
+                result["output_effort"] = config.get("output_effort")
+
+        if "output_effort" not in result and self.output_effort:
+            result["output_effort"] = self.output_effort
 
         return result
 

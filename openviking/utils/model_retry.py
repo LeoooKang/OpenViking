@@ -379,6 +379,37 @@ def rate_limit_retry_delay(attempt: int) -> float:
     return delay * random.uniform(0.8, 1.2)
 
 
+def extract_retry_after(exc: BaseException) -> float | None:
+    """Extract Retry-After header in seconds from exception chain, if present."""
+    for item in _iter_exception_chain(exc):
+        response = getattr(item, "response", None)
+        headers = getattr(response, "headers", None) if response is not None else None
+        if headers is None:
+            headers = getattr(item, "headers", None)
+        if headers is None:
+            continue
+        retry_after_val = None
+        if hasattr(headers, "get"):
+            retry_after_val = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after_val:
+            try:
+                val = float(retry_after_val)
+                if val >= 0:
+                    return val
+            except (ValueError, TypeError):
+                try:
+                    import datetime
+                    import email.utils
+
+                    dt = email.utils.parsedate_to_datetime(str(retry_after_val))
+                    diff = (dt - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+                    if diff >= 0:
+                        return diff
+                except Exception:
+                    pass
+    return None
+
+
 def _compute_delay(
     attempt: int,
     *,
@@ -398,6 +429,8 @@ def retry_sync(
     max_retries: int,
     base_delay: float = 0.5,
     max_delay: float = 8.0,
+    rate_limit_base_delay: float = 2.0,
+    rate_limit_max_delay: float = 120.0,
     jitter: bool = True,
     is_retryable: Callable[[Exception], bool] = is_retryable_api_error,
     logger=None,
@@ -413,12 +446,24 @@ def retry_sync(
             if max_retries <= 0 or attempt >= max_retries or not is_retryable(e):
                 raise
 
-            delay = _compute_delay(
-                attempt,
-                base_delay=base_delay,
-                max_delay=max_delay,
-                jitter=jitter,
-            )
+            if is_retryable_rate_limit_error(e):
+                retry_after = extract_retry_after(e)
+                if retry_after is not None:
+                    delay = min(max(retry_after, 0.0), rate_limit_max_delay)
+                else:
+                    delay = _compute_delay(
+                        attempt,
+                        base_delay=rate_limit_base_delay,
+                        max_delay=rate_limit_max_delay,
+                        jitter=jitter,
+                    )
+            else:
+                delay = _compute_delay(
+                    attempt,
+                    base_delay=base_delay,
+                    max_delay=max_delay,
+                    jitter=jitter,
+                )
             if logger:
                 logger.warning(
                     "%s failed with retryable error (retry %d/%d): %s; retrying in %.2fs",
@@ -438,6 +483,8 @@ async def retry_async(
     max_retries: int,
     base_delay: float = 0.5,
     max_delay: float = 8.0,
+    rate_limit_base_delay: float = 2.0,
+    rate_limit_max_delay: float = 120.0,
     jitter: bool = True,
     is_retryable: Callable[[Exception], bool] = is_retryable_api_error,
     logger=None,
@@ -453,12 +500,24 @@ async def retry_async(
             if max_retries <= 0 or attempt >= max_retries or not is_retryable(e):
                 raise
 
-            delay = _compute_delay(
-                attempt,
-                base_delay=base_delay,
-                max_delay=max_delay,
-                jitter=jitter,
-            )
+            if is_retryable_rate_limit_error(e):
+                retry_after = extract_retry_after(e)
+                if retry_after is not None:
+                    delay = min(max(retry_after, 0.0), rate_limit_max_delay)
+                else:
+                    delay = _compute_delay(
+                        attempt,
+                        base_delay=rate_limit_base_delay,
+                        max_delay=rate_limit_max_delay,
+                        jitter=jitter,
+                    )
+            else:
+                delay = _compute_delay(
+                    attempt,
+                    base_delay=base_delay,
+                    max_delay=max_delay,
+                    jitter=jitter,
+                )
             if logger:
                 logger.warning(
                     "%s failed with retryable error (retry %d/%d): %s; retrying in %.2fs",

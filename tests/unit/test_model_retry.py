@@ -370,3 +370,86 @@ def test_numeric_status_code_with_compact_error_code_context_still_matches():
     assert classify_api_error(RuntimeError("Error code:413-Payload Too Large")) == (
         ERROR_CLASS_INPUT_TOO_LARGE
     )
+
+
+def test_extract_retry_after_seconds():
+    from openviking.utils.model_retry import extract_retry_after
+
+    class MockResponse:
+        def __init__(self, headers):
+            self.headers = headers
+
+    class MockErrorWithResponse(Exception):
+        def __init__(self, headers):
+            self.response = MockResponse(headers)
+
+    err1 = MockErrorWithResponse({"retry-after": "5"})
+    assert extract_retry_after(err1) == 5.0
+
+    err2 = MockErrorWithResponse({"Retry-After": "2.5"})
+    assert extract_retry_after(err2) == 2.5
+
+    err_no_header = MockErrorWithResponse({})
+    assert extract_retry_after(err_no_header) is None
+
+
+def test_retry_sync_honors_retry_after(monkeypatch):
+    from unittest.mock import MagicMock
+    from openviking.utils.model_retry import retry_sync
+
+    class MockRateLimitError(Exception):
+        def __init__(self, retry_after):
+            super().__init__("Rate limit 429")
+            self.status_code = 429
+            self.response = MagicMock(headers={"retry-after": str(retry_after)})
+
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+
+    attempts = 0
+
+    def flaky():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise MockRateLimitError(12.0)
+        return "ok"
+
+    res = retry_sync(flaky, max_retries=2)
+    assert res == "ok"
+    assert len(slept) == 1
+    assert slept[0] == 12.0
+
+
+@pytest.mark.asyncio
+async def test_retry_async_rate_limit_backoff_defaults(monkeypatch):
+    import asyncio
+    from openviking.utils.model_retry import retry_async
+
+    class MockRateLimitError(Exception):
+        def __init__(self):
+            super().__init__("Rate limit 429")
+            self.status_code = 429
+
+    slept = []
+
+    async def mock_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+    attempts = 0
+
+    async def flaky():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise MockRateLimitError()
+        return "ok"
+
+    res = await retry_async(flaky, max_retries=2, jitter=False)
+    assert res == "ok"
+    assert len(slept) == 1
+    # Base delay for rate limit is 2.0s
+    assert slept[0] == 2.0
+
