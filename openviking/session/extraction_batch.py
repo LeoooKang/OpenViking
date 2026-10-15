@@ -29,10 +29,19 @@ class ExtractionMessageBatch:
     oversized: bool = False
 
 
-def resolve_extraction_batch_limits(auto_commit_policy: Any) -> ExtractionBatchLimits:
+def resolve_extraction_batch_limits(
+    auto_commit_policy: Any,
+    *,
+    single_shot_context_tokens: Optional[int] = None,
+) -> ExtractionBatchLimits:
     if not isinstance(auto_commit_policy, dict) or not auto_commit_policy:
         return ExtractionBatchLimits()
     policy = AutoCommitPolicy.from_dict(auto_commit_policy)
+    if single_shot_context_tokens is not None:
+        return ExtractionBatchLimits(
+            max_message_tokens=max(policy.pending_token_threshold, single_shot_context_tokens),
+            max_messages=None,
+        )
     return ExtractionBatchLimits(
         max_message_tokens=(
             policy.pending_token_threshold if policy.pending_token_threshold > 0 else None

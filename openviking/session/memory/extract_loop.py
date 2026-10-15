@@ -56,6 +56,11 @@ logger = get_logger(__name__)
 # Models whose max output tokens is BELOW this value (e.g. gpt-4o-mini at 16384)
 # must set `vlm.max_tokens` in ov.conf to their own limit to override this default.
 _DEFAULT_EXTRACTION_MAX_OUTPUT_TOKENS = 32768
+# Tiered long timeout for memory extraction LLM calls (P-20261015-03).
+# Complex full-session extraction calls with deep reasoning effort (e.g. MiniMax
+# output_effort="max") require extended processing time beyond the standard 600s
+# API timeout. Working value is 3000.0s (50 minutes).
+_DEFAULT_EXTRACTION_TIMEOUT_SECONDS = 3000.0
 
 
 @dataclass
@@ -136,6 +141,7 @@ class ExtractLoop:
         isolation_handler: MemoryIsolationHandler = None,
         thinking: bool = False,
         max_output_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
     ):
         """
         Initialize the ExtractLoop.
@@ -152,6 +158,8 @@ class ExtractLoop:
                 configured vlm.max_tokens is used, falling back to a value large enough for
                 full memory rewrites so providers do not apply a small server-side default
                 (e.g. Ark's 4096) and truncate the program mid-string.
+            timeout: Per-call HTTP timeout in seconds for extraction LLM calls. When None,
+                resolves from vlm.extraction_timeout_s, falling back to 3000.0s.
         """
         self.vlm = vlm
         self.viking_fs = viking_fs or get_viking_fs()
@@ -161,12 +169,18 @@ class ExtractLoop:
         self.context_provider = context_provider
         self.thinking = bool(thinking)
         self.max_output_tokens = max_output_tokens
+        self.timeout = timeout
         # Resolved in run() via _resolve_effective_max_output_tokens(); default to
         # the extraction floor so a direct _call_llm() before run() stays safe.
         self._effective_max_output_tokens = (
             max_output_tokens
             if max_output_tokens is not None
             else _DEFAULT_EXTRACTION_MAX_OUTPUT_TOKENS
+        )
+        self._effective_timeout = (
+            timeout
+            if timeout is not None
+            else self._resolve_extraction_timeout()
         )
         # Use provided isolation_handler or create one in run()
         self._isolation_handler = isolation_handler
@@ -237,6 +251,7 @@ class ExtractLoop:
         self._link_enabled = config.memory.link_enabled if config.memory else False
 
         self._resolve_effective_max_output_tokens()
+        self._effective_timeout = self._resolve_extraction_timeout()
 
         # 获取 ExtractContext（整个流程复用）
         self._extract_context = self.context_provider.get_extract_context()
@@ -480,6 +495,25 @@ class ExtractLoop:
         self._effective_max_output_tokens = (
             configured if configured is not None else _DEFAULT_EXTRACTION_MAX_OUTPUT_TOKENS
         )
+
+    def _resolve_extraction_timeout(self) -> float:
+        """Resolve the extraction timeout.
+
+        Priority: explicit per-loop value > resolved VLM extraction_timeout_s >
+        ov.conf vlm.extraction_timeout_s > _DEFAULT_EXTRACTION_TIMEOUT_SECONDS (3000s).
+        """
+        if self.timeout is not None:
+            return float(self.timeout)
+        vlm_timeout = getattr(self.vlm, "extraction_timeout_s", None)
+        if vlm_timeout is not None:
+            return float(vlm_timeout)
+        try:
+            cfg = get_openviking_config()
+            if cfg and cfg.vlm and cfg.vlm.extraction_timeout_s is not None:
+                return float(cfg.vlm.extraction_timeout_s)
+        except Exception:
+            pass
+        return _DEFAULT_EXTRACTION_TIMEOUT_SECONDS
 
     def _retryable_resolution_issues(self, operations: ResolvedOperations) -> List[Dict[str, Any]]:
         issues: List[Dict[str, Any]] = []
@@ -1188,6 +1222,7 @@ class ExtractLoop:
                 tool_choice=tool_choice,
                 thinking=self.thinking,
                 max_tokens=self._effective_max_output_tokens,
+                timeout=self._effective_timeout,
             )
         self._last_llm_failure_kind = None
         self._last_llm_failure_content = ""

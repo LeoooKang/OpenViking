@@ -73,6 +73,7 @@ class VLMBase(ABC):
         self.temperature = config.get("temperature", 0.0)
         self.max_retries = config.get("max_retries", 3)
         self.timeout = config.get("timeout", 600.0)
+        self.extraction_timeout_s = config.get("extraction_timeout_s")
         self.max_tokens = config.get("max_tokens")
         self.extra_headers = config.get("extra_headers")
         self.extra_request_body = dict(config.get("extra_request_body") or {})
@@ -89,6 +90,7 @@ class VLMBase(ABC):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion
 
@@ -98,6 +100,7 @@ class VLMBase(ABC):
             tools: Optional list of tool definitions in OpenAI function format
             tool_choice: Optional tool choice mode ("auto", "none", or specific tool name)
             messages: Optional list of message dicts (takes precedence over prompt)
+            timeout: Optional per-request HTTP timeout in seconds
 
         Returns:
             str if no tools provided, VLMResponse if tools provided
@@ -113,6 +116,7 @@ class VLMBase(ABC):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion asynchronously
 
@@ -123,6 +127,7 @@ class VLMBase(ABC):
             tool_choice: Optional tool choice mode ("auto", "none", or specific tool name)
             messages: Optional list of message dicts (takes precedence over prompt)
             max_tokens: Optional per-call output cap; overrides the configured value
+            timeout: Optional per-request HTTP timeout in seconds
 
         Returns:
             str if no tools provided, VLMResponse if tools provided
@@ -585,6 +590,7 @@ class FailoverVLM(VLMBase):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion with failover support."""
         return self._get_completion_with_failover(
@@ -594,6 +600,7 @@ class FailoverVLM(VLMBase):
             tools=tools,
             tool_choice=tool_choice,
             messages=messages,
+            timeout=timeout,
         )
 
     async def get_completion_async(
@@ -604,6 +611,7 @@ class FailoverVLM(VLMBase):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion asynchronously with failover support."""
         return await self._get_completion_with_failover_async(
@@ -614,6 +622,7 @@ class FailoverVLM(VLMBase):
             tool_choice=tool_choice,
             messages=messages,
             max_tokens=max_tokens,
+            timeout=timeout,
         )
 
     def get_vision_completion(
@@ -820,6 +829,7 @@ class MultiCredentialVLM(VLMBase):
             "temperature": first.temperature,
             "max_retries": first.max_retries,
             "timeout": first.timeout,
+            "extraction_timeout_s": getattr(first, "extraction_timeout_s", None),
             "max_tokens": (
                 min(configured_token_limits) if configured_token_limits else None
             ),
@@ -983,6 +993,7 @@ class MultiCredentialVLM(VLMBase):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion with multi-credential failover support."""
         return self._get_completion_with_failover(
@@ -992,6 +1003,7 @@ class MultiCredentialVLM(VLMBase):
             tools=tools,
             tool_choice=tool_choice,
             messages=messages,
+            timeout=timeout,
         )
 
     async def get_completion_async(
@@ -1002,6 +1014,7 @@ class MultiCredentialVLM(VLMBase):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion asynchronously with multi-credential failover support."""
         return await self._get_completion_with_failover_async(
@@ -1012,6 +1025,7 @@ class MultiCredentialVLM(VLMBase):
             tool_choice=tool_choice,
             messages=messages,
             max_tokens=max_tokens,
+            timeout=timeout,
         )
 
     def get_vision_completion(

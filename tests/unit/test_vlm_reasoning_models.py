@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0
 """Tests for OpenAI request defaults and explicitly configured reasoning effort."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from openviking.models.vlm.backends.openai_vlm import OpenAIVLM
@@ -162,4 +164,170 @@ class TestOpenAIOutputEffortParams:
         )
         kwargs = vlm._build_text_kwargs(prompt="hello", output_effort="max")
         assert kwargs["extra_body"] == {"output_config": {"effort": "max"}}
+
+
+class TestOpenAIExtractionTimeoutParams:
+    """extraction_timeout_s configuration and propagation for extraction calls."""
+
+    def test_extraction_timeout_via_vlm_config(self):
+        config = VLMConfig(
+            provider="openai",
+            model="MiniMax-M3.1-Flash-Preview",
+            api_key="sk-test",
+            api_base="https://api.minimaxi.com/v1",
+            timeout=600.0,
+            extraction_timeout_s=3000.0,
+        )
+        assert config.extraction_timeout_s == 3000.0
+        config_dict = config._build_vlm_config_dict()
+        assert config_dict["timeout"] == 600.0
+        assert config_dict["extraction_timeout_s"] == 3000.0
+        vlm = config.get_vlm_instance()
+        assert getattr(vlm, "extraction_timeout_s", None) == 3000.0
+
+    def test_extraction_timeout_via_credential(self):
+        config = VLMConfig(
+            provider="openai",
+            model="MiniMax-M3.1-Flash-Preview",
+            credentials=[
+                {
+                    "provider": "openai",
+                    "model": "MiniMax-M3.1-Flash-Preview",
+                    "api_key": "sk-cred-1",
+                    "extraction_timeout_s": 2500.0,
+                }
+            ],
+            timeout=600.0,
+            extraction_timeout_s=3000.0,
+        )
+        cred = config.credentials[0]
+        assert cred.extraction_timeout_s == 2500.0
+        config_dict = config._build_vlm_config_dict_for_credential(cred)
+        assert config_dict["extraction_timeout_s"] == 2500.0
+
+    def test_extraction_timeout_credential_inherits_parent(self):
+        config = VLMConfig(
+            provider="openai",
+            model="MiniMax-M3.1-Flash-Preview",
+            credentials=[
+                {
+                    "provider": "openai",
+                    "model": "MiniMax-M3.1-Flash-Preview",
+                    "api_key": "sk-cred-1",
+                }
+            ],
+            timeout=600.0,
+            extraction_timeout_s=3000.0,
+        )
+        cred = config.credentials[0]
+        assert cred.extraction_timeout_s is None
+        config_dict = config._build_vlm_config_dict_for_credential(cred)
+        assert config_dict["extraction_timeout_s"] == 3000.0
+
+    def test_openai_vlm_accepts_extraction_timeout(self):
+        vlm = OpenAIVLM(
+            {
+                "api_key": "sk-test",
+                "model": "MiniMax-M3.1-Flash-Preview",
+                "timeout": 600.0,
+                "extraction_timeout_s": 3000.0,
+            }
+        )
+        assert vlm.timeout == 600.0
+        assert vlm.extraction_timeout_s == 3000.0
+
+    def test_openai_vlm_get_completion_forwards_timeout(self, monkeypatch):
+        vlm = OpenAIVLM(
+            {
+                "api_key": "sk-test",
+                "model": "MiniMax-M3.1-Flash-Preview",
+                "timeout": 600.0,
+                "extraction_timeout_s": 3000.0,
+            }
+        )
+        captured_kwargs = {}
+
+        class DummyCompletions:
+            def create(self, **kwargs):
+                captured_kwargs.update(kwargs)
+                response = SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="test response"))],
+                    usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                )
+                return response
+
+        class DummyClient:
+            chat = SimpleNamespace(completions=DummyCompletions())
+
+        monkeypatch.setattr(vlm, "get_client", lambda: DummyClient())
+
+        # When timeout is explicitly passed, it overrides the client call
+        res = vlm.get_completion(prompt="hello", timeout=3000.0)
+        assert res == "test response"
+        assert captured_kwargs.get("timeout") == 3000.0
+
+        # When timeout is omitted, timeout is not injected into call_kwargs
+        captured_kwargs.clear()
+        res = vlm.get_completion(prompt="hello")
+        assert res == "test response"
+        assert "timeout" not in captured_kwargs
+
+    @pytest.mark.asyncio
+    async def test_openai_vlm_get_completion_async_forwards_timeout(self, monkeypatch):
+        vlm = OpenAIVLM(
+            {
+                "api_key": "sk-test",
+                "model": "MiniMax-M3.1-Flash-Preview",
+                "timeout": 600.0,
+                "extraction_timeout_s": 3000.0,
+            }
+        )
+        captured_kwargs = {}
+
+        class DummyAsyncCompletions:
+            async def create(self, **kwargs):
+                captured_kwargs.update(kwargs)
+                response = SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="async response"))],
+                    usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                )
+                return response
+
+        class DummyAsyncClient:
+            chat = SimpleNamespace(completions=DummyAsyncCompletions())
+
+        monkeypatch.setattr(vlm, "get_async_client", lambda: DummyAsyncClient())
+
+        res = await vlm.get_completion_async(prompt="hello", timeout=3000.0)
+        assert res == "async response"
+        assert captured_kwargs.get("timeout") == 3000.0
+
+        captured_kwargs.clear()
+        res = await vlm.get_completion_async(prompt="hello")
+        assert res == "async response"
+        assert "timeout" not in captured_kwargs
+
+    @pytest.mark.asyncio
+    async def test_extract_loop_resolves_and_passes_timeout(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from openviking.session.memory.extract_loop import ExtractLoop
+
+        mock_vlm = MagicMock()
+        mock_vlm.model = "test-model"
+        mock_vlm.extraction_timeout_s = 3000.0
+        mock_vlm.get_completion_async = AsyncMock(return_value="done")
+
+        loop = ExtractLoop(
+            vlm=mock_vlm,
+            viking_fs=MagicMock(),
+            context_provider=MagicMock(),
+        )
+        assert loop._effective_timeout == 3000.0
+
+        await loop._call_llm(messages=[{"role": "user", "content": "hi"}])
+        assert mock_vlm.get_completion_async.call_count == 1
+        _, kwargs = mock_vlm.get_completion_async.call_args
+        assert kwargs["timeout"] == 3000.0
+
+
 

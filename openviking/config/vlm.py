@@ -31,6 +31,7 @@ class VLMHandle(Protocol):
     max_tokens: int | None
     thinking: bool
     token_tracker: TokenUsageTracker
+    extraction_timeout_s: float | None
 
     def is_available(self) -> bool: ...
 

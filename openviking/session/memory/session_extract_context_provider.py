@@ -329,7 +329,7 @@ After exploring, analyze the conversation and output ALL memory write/edit/delet
                     if part.tool_input:
                         fields.append(f"input={part.tool_input}")
                     if part.tool_output:
-                        fields.append(f"output={part.tool_output[:500]}")
+                        fields.append(f"output={part.tool_output}")
                     if part.duration_ms is not None:
                         fields.append(f"duration_ms={part.duration_ms}")
                     if part.skill_uri:

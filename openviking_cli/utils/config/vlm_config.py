@@ -101,6 +101,11 @@ class VLMCredential(BaseModel):
             "Overrides the parent max_tokens when set."
         ),
     )
+    extraction_timeout_s: Optional[float] = RuntimeField(
+        default=None,
+        gt=0.0,
+        description="Per-request timeout in seconds specifically for session extraction LLM calls",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -176,6 +181,13 @@ class VLMConfig(BaseModel):
         description=(
             "Idle HTTP connection lifetime in seconds for OpenAI-compatible VLM clients. "
             "Set to 0 to disable connection reuse; None uses the provider SDK default."
+        ),
+    )
+    extraction_timeout_s: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Per-request timeout in seconds specifically for session extraction LLM calls (e.g. 3000.0)."
         ),
     )
 
@@ -767,6 +779,11 @@ class VLMConfig(BaseModel):
         elif self.output_effort:
             result["output_effort"] = self.output_effort
 
+        if credential.extraction_timeout_s is not None:
+            result["extraction_timeout_s"] = credential.extraction_timeout_s
+        elif self.extraction_timeout_s is not None:
+            result["extraction_timeout_s"] = self.extraction_timeout_s
+
         return result
 
     def _build_vlm_config_dict(self) -> Dict[str, Any]:
@@ -805,9 +822,13 @@ class VLMConfig(BaseModel):
                 result["reasoning_effort"] = config.get("reasoning_effort")
             if config.get("output_effort"):
                 result["output_effort"] = config.get("output_effort")
+            if config.get("extraction_timeout_s") is not None:
+                result["extraction_timeout_s"] = config.get("extraction_timeout_s")
 
         if "output_effort" not in result and self.output_effort:
             result["output_effort"] = self.output_effort
+        if "extraction_timeout_s" not in result and self.extraction_timeout_s is not None:
+            result["extraction_timeout_s"] = self.extraction_timeout_s
 
         return result
 
@@ -818,6 +839,7 @@ class VLMConfig(BaseModel):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Any] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, Any]:
         """Get LLM completion."""
         effective_thinking = self.thinking if thinking is None else thinking
@@ -827,6 +849,7 @@ class VLMConfig(BaseModel):
             tools=tools,
             tool_choice=tool_choice,
             messages=messages,
+            timeout=timeout,
         )
 
     async def get_completion_async(
@@ -837,6 +860,7 @@ class VLMConfig(BaseModel):
         tool_choice: Optional[Any] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, Any]:
         """Get LLM completion asynchronously."""
         effective_thinking = self.thinking if thinking is None else thinking
@@ -847,6 +871,7 @@ class VLMConfig(BaseModel):
             tool_choice=tool_choice,
             messages=messages,
             max_tokens=max_tokens,
+            timeout=timeout,
         )
 
     def is_available(self) -> bool:

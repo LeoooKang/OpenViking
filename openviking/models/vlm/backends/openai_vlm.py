@@ -363,6 +363,7 @@ class OpenAIVLM(VLMBase):
         tool_choice: Optional[str] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         output_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion"""
         effective_thinking = self.thinking if thinking is None else thinking
@@ -377,8 +378,12 @@ class OpenAIVLM(VLMBase):
         )
 
         def _call() -> Union[str, VLMResponse]:
+            call_kwargs = dict(kwargs)
+            if timeout is not None:
+                call_kwargs["timeout"] = timeout
+                tracer.info(f"[OpenAIVLM] chat completion request timeout={timeout}s")
             t0 = time.perf_counter()
-            response = client.chat.completions.create(**kwargs)
+            response = client.chat.completions.create(**call_kwargs)
             elapsed = time.perf_counter() - t0
             if tools is not None:
                 self._update_token_usage_from_response(response, duration_seconds=elapsed)
@@ -401,6 +406,7 @@ class OpenAIVLM(VLMBase):
         messages: Optional[List[Dict[str, Any]]] = None,
         max_tokens: Optional[int] = None,
         output_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Union[str, VLMResponse]:
         """Get text completion asynchronously"""
         effective_thinking = self.thinking if thinking is None else thinking
@@ -416,8 +422,12 @@ class OpenAIVLM(VLMBase):
         )
 
         async def _call() -> Union[str, VLMResponse]:
+            call_kwargs = dict(kwargs)
+            if timeout is not None:
+                call_kwargs["timeout"] = timeout
+                tracer.info(f"[OpenAIVLM] async chat completion request timeout={timeout}s")
             t0 = time.perf_counter()
-            response = await client.chat.completions.create(**kwargs)
+            response = await client.chat.completions.create(**call_kwargs)
             elapsed = time.perf_counter() - t0
             if tools is not None:
                 self._update_token_usage_from_response(response, duration_seconds=elapsed)

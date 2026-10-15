@@ -87,7 +87,8 @@ MemoryPolicyProvider = Callable[[], Awaitable[MemoryPolicyData]]
 
 logger = get_logger(__name__)
 
-_PHASE2_QUEUE_WAIT_TIMEOUT_SECONDS = 1800.0
+# Bumped from 1800.0 to 3600.0 (1 hour) to safely accommodate 3000s extraction calls (P-20261015-03)
+_PHASE2_QUEUE_WAIT_TIMEOUT_SECONDS = 3600.0
 _MEMORY_EXTRACTION_MAX_RETRIES = 3
 _MEMORY_EXTRACTION_RETRY_BASE_DELAY_SECONDS = 1.0
 _MEMORY_EXTRACTION_RETRY_MAX_DELAY_SECONDS = 8.0
@@ -2000,7 +2001,10 @@ class Session:
                 with bind_telemetry(telemetry):
                     ov_config = get_openviking_config()
                     effective_policy = MemoryPolicy.from_dict(memory_policy)
-                    extraction_batch_limits = resolve_extraction_batch_limits(auto_commit_policy)
+                    extraction_batch_limits = resolve_extraction_batch_limits(
+                        auto_commit_policy,
+                        single_shot_context_tokens=1_000_000,
+                    )
                     enable_working_memory = effective_policy.enable_working_memory
                     logger.info(
                         "Session commit task=%s archive=%s enable_working_memory=%s",
