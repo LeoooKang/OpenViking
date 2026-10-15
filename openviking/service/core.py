@@ -103,6 +103,7 @@ class OpenVikingService:
         self._uri_mutation_coordinator = UriMutationCoordinator()
         self._watch_scheduler: Optional[WatchScheduler] = None
         self._session_auto_commit_scheduler: Optional[SessionAutoCommitScheduler] = None
+        self._session_requeue_sweeper: Optional[Any] = None
         self._encryptor: Optional[Any] = None
         self._privacy_config_service: Optional[UserPrivacyConfigService] = None
         self._runtime_config_manager: Optional[Any] = None
@@ -651,6 +652,18 @@ class OpenVikingService:
             self._queue_manager.start()
             logger.info("QueueManager workers started")
 
+        if self._queue_manager and self._session_service and self._viking_fs:
+            from openviking.service.session_requeue import SessionRequeueSweeper
+
+            self._session_requeue_sweeper = SessionRequeueSweeper(
+                session_service=self._session_service,
+                queue_manager=self._queue_manager,
+                viking_fs=self._viking_fs,
+            )
+            self._session_service.requeue_sweeper = self._session_requeue_sweeper
+            await self._session_requeue_sweeper.start()
+            logger.info("SessionRequeueSweeper started")
+
         # Preflight the MinerU endpoint when it will be used, so endpoint
         # misconfiguration or a stopped service surfaces now instead of on the
         # first PDF import. Required for strategy="mineru"; advisory for "auto".
@@ -694,6 +707,11 @@ class OpenVikingService:
             await self._session_auto_commit_scheduler.stop()
             self._session_auto_commit_scheduler = None
             logger.info("SessionAutoCommitScheduler stopped")
+
+        if self._session_requeue_sweeper:
+            await self._session_requeue_sweeper.stop()
+            self._session_requeue_sweeper = None
+            logger.info("SessionRequeueSweeper stopped")
 
         if self._queue_manager:
             await asyncio.to_thread(self._queue_manager.stop)

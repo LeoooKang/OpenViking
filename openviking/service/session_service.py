@@ -79,6 +79,31 @@ class SessionService:
         self._auto_commit_inflight_lock = asyncio.Lock()
         # Strong refs so spawned tasks aren't GC'd mid-await.
         self._auto_commit_tasks: set[asyncio.Task] = set()
+        self._requeue_sweeper: Optional[Any] = None
+
+    @property
+    def requeue_sweeper(self) -> Optional[Any]:
+        return self._requeue_sweeper
+
+    @requeue_sweeper.setter
+    def requeue_sweeper(self, sweeper: Any) -> None:
+        self._requeue_sweeper = sweeper
+
+    async def get_quarantined_sessions(
+        self, account_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List quarantined sessions for observability / admin review."""
+        if self._requeue_sweeper is not None:
+            return await self._requeue_sweeper.get_quarantined_sessions(account_id=account_id)
+        return []
+
+    async def get_pending_requeues(
+        self, account_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List pending requeue candidates."""
+        if self._requeue_sweeper is not None:
+            return await self._requeue_sweeper.get_pending_requeues(account_id=account_id)
+        return []
 
     def set_dependencies(
         self,

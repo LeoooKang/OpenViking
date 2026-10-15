@@ -1697,7 +1697,9 @@ class Session:
             error="session commit cancelled",
         )
 
-    async def resume_queued_commit(self, msg: "SessionCommitMsg") -> bool:
+    async def resume_queued_commit(
+        self, msg: "SessionCommitMsg", *, wait: bool = False
+    ) -> bool:
         """Run one durable Phase 2 job from its archived messages."""
         from openviking.service.task_tracker import get_task_tracker
 
@@ -1734,13 +1736,31 @@ class Session:
             if not _is_storage_not_found(exc):
                 raise
         else:
-            await tracker.fail(
-                msg.task_id,
-                str(failed.get("error") or "session commit failed"),
-                account_id=self.ctx.account_id,
-                user_id=self.ctx.user.user_id,
+            is_quarantined = (
+                bool(failed.get("quarantined", False))
+                or int(failed.get("requeue_count", 0)) >= 10
+                or failed.get("stage") == "cancelled"
             )
-            return True
+            if is_quarantined:
+                logger.warning(
+                    "[QUARANTINE_VALVE] Session %s archive %s is quarantined: %s",
+                    self.session_id,
+                    msg.archive_uri,
+                    failed.get("quarantine_reason") or failed.get("error"),
+                )
+                await tracker.fail(
+                    msg.task_id,
+                    str(failed.get("error") or "session commit quarantined"),
+                    account_id=self.ctx.account_id,
+                    user_id=self.ctx.user.user_id,
+                )
+                return True
+            logger.info(
+                "[REQUEUE_ATTEMPT] Session %s archive %s re-attempting Phase 2 extraction (attempt %s)",
+                self.session_id,
+                msg.archive_uri,
+                failed.get("requeue_count", 1),
+            )
 
         if not await self._ensure_phase1_ready(msg.archive_uri):
             try:
@@ -1817,21 +1837,49 @@ class Session:
         if user_config_error is not None:
             user_config_error = str(user_config_error)
 
-        await self._run_memory_extraction(
-            task_id=msg.task_id,
-            archive_uri=msg.archive_uri,
-            messages=archive_messages,
-            first_message_id=archive_messages[0].id,
-            last_message_id=archive_messages[-1].id,
-            memory_policy=msg.memory_policy,
-            agent_evolution_enabled=agent_evolution_enabled,
-            agent_memory_skip_reason=agent_memory_skip_reason,
-            user_config_error=user_config_error,
-            record_auto_commit_success=msg.record_auto_commit_success,
-            event_search_tags=list(msg.event_search_tags or []),
-            auto_commit_policy=msg.auto_commit_policy,
+        from openviking.session.session_lock import (
+            SessionExtractionBusyError,
+            get_session_extraction_lock_manager,
         )
-        return True
+
+        lock_manager = get_session_extraction_lock_manager()
+        session_path = None
+        if self._viking_fs:
+            try:
+                session_path = self._viking_fs._uri_to_path(self._session_uri, ctx=self.ctx)
+            except Exception:
+                session_path = None
+
+        try:
+            async with lock_manager.acquire(
+                session_id=self.session_id,
+                session_uri=self._session_uri,
+                session_path=session_path,
+                viking_fs=self._viking_fs,
+                wait=wait,
+            ):
+                await self._run_memory_extraction(
+                    task_id=msg.task_id,
+                    archive_uri=msg.archive_uri,
+                    messages=archive_messages,
+                    first_message_id=archive_messages[0].id,
+                    last_message_id=archive_messages[-1].id,
+                    memory_policy=msg.memory_policy,
+                    agent_evolution_enabled=agent_evolution_enabled,
+                    agent_memory_skip_reason=agent_memory_skip_reason,
+                    user_config_error=user_config_error,
+                    record_auto_commit_success=msg.record_auto_commit_success,
+                    event_search_tags=list(msg.event_search_tags or []),
+                    auto_commit_policy=msg.auto_commit_policy,
+                )
+            return True
+        except SessionExtractionBusyError as exc:
+            logger.info(
+                "[SESSION_LOCK] Session %s extraction lock busy; deferring for requeue: %s",
+                self.session_id,
+                exc,
+            )
+            return False
 
     async def _run_usage_reporting(
         self,
@@ -2491,6 +2539,24 @@ class Session:
             content=content,
             ctx=self.ctx,
         )
+        try:
+            await self._viking_fs.rm(f"{archive_uri}/.failed.json", ctx=self.ctx)
+        except Exception:
+            pass
+
+        from openviking.service.session_requeue import clear_requeue
+
+        try:
+            await clear_requeue(
+                self._viking_fs,
+                account_id=self.ctx.account_id,
+                session_id=self.session_id,
+                archive_uri=archive_uri,
+            )
+        except Exception as clear_exc:
+            logger.warning(
+                "Failed to clear requeue entry for %s: %s", archive_uri, clear_exc
+            )
 
     async def _write_failed_marker(
         self,
@@ -2505,13 +2571,50 @@ class Session:
         """Persist a terminal failure marker for the archive."""
         if not self._viking_fs:
             return
+
+        prev_requeue_count = 0
+        try:
+            raw_failed = await self._viking_fs.read_file(
+                f"{archive_uri}/.failed.json", ctx=self.ctx
+            )
+            existing_failed = json.loads(raw_failed or "{}")
+            if isinstance(existing_failed, dict):
+                prev_requeue_count = int(existing_failed.get("requeue_count") or 0)
+        except Exception:
+            pass
+
+        import time
+        from openviking.service.session_requeue import (
+            DEFAULT_MAX_REQUEUE_ATTEMPTS,
+            RequeueCandidate,
+            calculate_requeue_backoff,
+            register_failed_requeue,
+        )
+
+        new_requeue_count = prev_requeue_count + 1
+        backoff_delay = calculate_requeue_backoff(new_requeue_count)
+        next_requeue_at = time.time() + backoff_delay
+        is_quarantined = (new_requeue_count >= DEFAULT_MAX_REQUEUE_ATTEMPTS) or (
+            stage == "cancelled"
+        )
+        quarantine_reason = (
+            f"Exceeded {DEFAULT_MAX_REQUEUE_ATTEMPTS} requeue attempts: {error}"
+            if new_requeue_count >= DEFAULT_MAX_REQUEUE_ATTEMPTS
+            else None
+        )
+
         payload = {
             "stage": stage,
             "error": error,
             "failed_at": get_current_timestamp(),
             "skipped": skipped,
             "completed_memory_steps": dict(completed_memory_steps or {}),
+            "requeue_count": new_requeue_count,
+            "next_requeue_at": next_requeue_at,
+            "quarantined": is_quarantined,
         }
+        if quarantine_reason:
+            payload["quarantine_reason"] = quarantine_reason
         if blocked_by:
             payload["blocked_by"] = blocked_by
         await self._viking_fs.write_file(
@@ -2520,6 +2623,27 @@ class Session:
             ctx=self.ctx,
             lease_ref=lease_ref,
         )
+
+        if stage != "cancelled":
+            try:
+                candidate = RequeueCandidate(
+                    account_id=self.ctx.account_id,
+                    user_id=self.ctx.user.user_id,
+                    session_id=self.session_id,
+                    session_uri=self._session_uri,
+                    archive_uri=archive_uri,
+                    requeue_count=new_requeue_count,
+                    next_requeue_at=next_requeue_at,
+                    quarantined=is_quarantined,
+                    quarantine_reason=quarantine_reason,
+                    last_error=error,
+                    created_at=get_current_timestamp(),
+                )
+                await register_failed_requeue(self._viking_fs, candidate)
+            except Exception as reg_exc:
+                logger.warning(
+                    "Failed to register requeue candidate for %s: %s", archive_uri, reg_exc
+                )
 
     async def get_session_context(self, token_budget: int = 128_000) -> Dict[str, Any]:
         """Get assembled session context with the latest summary archive and merged messages."""
@@ -2788,6 +2912,20 @@ class Session:
             completed_memory_steps,
             current_meta.get("completed_memory_steps"),
         )
+        if self._viking_fs:
+            try:
+                failed_raw = await self._viking_fs.read_file(
+                    f"{archive_uri}/.failed.json",
+                    ctx=self.ctx,
+                )
+                failed_data = json.loads(failed_raw or "{}")
+                if isinstance(failed_data, dict):
+                    self._archives.merge_completed_memory_steps(
+                        completed_memory_steps,
+                        failed_data.get("completed_memory_steps"),
+                    )
+            except Exception:
+                pass
         return (
             current_messages,
             current_archive_id,
