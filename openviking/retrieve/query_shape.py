@@ -87,27 +87,27 @@ def extract_caller_identity(ctx: object = None) -> tuple[str, str]:
         if not user:
             user = getattr(ctx, "user_id", None)
 
-    # If identity was not explicitly provided or is default, inspect call stack for HTTP request headers
-    if not account or account == "default" or not user or user == "default":
-        try:
-            import sys
+    # Inspect call stack for explicit HTTP request header overrides (e.g. x-openviking-account / x-openviking-user)
+    try:
+        import sys
 
-            frame = sys._getframe(1)
-            for _ in range(8):
-                if frame is None:
+        frame = sys._getframe(1)
+        for _ in range(8):
+            if frame is None:
+                break
+            for var_name in ("http_request", "request"):
+                req = frame.f_locals.get(var_name)
+                if req is not None and hasattr(req, "headers"):
+                    hdr_acct = req.headers.get("x-openviking-account") or req.headers.get("X-OpenViking-Account")
+                    hdr_user = req.headers.get("x-openviking-user") or req.headers.get("X-OpenViking-User")
+                    if hdr_acct and str(hdr_acct).strip():
+                        account = str(hdr_acct).strip()
+                    if hdr_user and str(hdr_user).strip():
+                        user = str(hdr_user).strip()
                     break
-                for var_name in ("http_request", "request"):
-                    req = frame.f_locals.get(var_name)
-                    if req is not None and hasattr(req, "headers"):
-                        hdr_acct = req.headers.get("x-openviking-account")
-                        hdr_user = req.headers.get("x-openviking-user")
-                        if hdr_acct and (not account or account == "default"):
-                            account = hdr_acct
-                        if hdr_user and (not user or user == "default"):
-                            user = hdr_user
-                        break
-                frame = frame.f_back
-        except Exception:
-            pass
+            frame = frame.f_back
+    except Exception:
+        pass
 
     return str(account or "default"), str(user or "default")
+

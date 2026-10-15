@@ -122,3 +122,50 @@ class TestExtractCallerIdentity:
         acct, user = extract_caller_identity(ctx)
         assert acct == "custom_account"
         assert user == "custom_user"
+
+    def test_header_override_takes_precedence_over_authenticated_context(self):
+        from types import SimpleNamespace
+        from openviking.retrieve.query_shape import extract_caller_identity
+
+        ctx = SimpleNamespace(
+            account_id="default",
+            user=SimpleNamespace(account_id="default", user_id="young"),
+        )
+
+        request = SimpleNamespace(
+            headers={
+                "x-openviking-account": "custom_tenant",
+                "x-openviking-user": "monica",
+            }
+        )
+
+        # Call in a frame where `request` is a local variable
+        def _wrapper():
+            return extract_caller_identity(ctx)
+
+        acct, user = _wrapper()
+        assert acct == "custom_tenant"
+        assert user == "monica"
+
+    def test_header_override_single_field(self):
+        from types import SimpleNamespace
+        from openviking.retrieve.query_shape import extract_caller_identity
+
+        ctx = SimpleNamespace(
+            account_id="original_acct",
+            user=SimpleNamespace(account_id="original_acct", user_id="original_user"),
+        )
+
+        request = SimpleNamespace(
+            headers={
+                "x-openviking-user": "override_user",
+            }
+        )
+
+        def _wrapper():
+            return extract_caller_identity(ctx)
+
+        acct, user = _wrapper()
+        assert acct == "original_acct"
+        assert user == "override_user"
+
