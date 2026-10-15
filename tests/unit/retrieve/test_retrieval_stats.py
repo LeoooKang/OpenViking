@@ -204,3 +204,81 @@ class TestRetrievalObserver:
         self._setup_collector()
         observer = RetrievalObserver()
         assert str(observer) == observer.get_status_table()
+
+    def test_record_query_shape_and_account_tracking(self):
+        collector = self._setup_collector()
+        collector.record_query(
+            "search",
+            result_count=10,
+            scores=[0.8],
+            caller_account="account_a",
+            caller_user="user_1",
+            query_shape="natural_language",
+        )
+        collector.record_query(
+            "search",
+            result_count=0,
+            scores=[],
+            caller_account="account_a",
+            caller_user="user_1",
+            query_shape="id_like",
+        )
+        collector.record_query(
+            "search",
+            result_count=5,
+            scores=[0.6],
+            caller_account="account_b",
+            caller_user="user_2",
+            query_shape="mixed",
+        )
+
+        snap = collector.snapshot()
+        assert snap.queries_by_shape == {
+            "natural_language": 1,
+            "id_like": 1,
+            "mixed": 1,
+        }
+        assert snap.zero_result_by_shape == {"id_like": 1}
+        assert snap.queries_by_account == {"account_a": 2, "account_b": 1}
+        assert snap.zero_result_by_account == {"account_a": 1}
+        assert snap.queries_by_account_shape == {
+            "account_a/natural_language": 1,
+            "account_a/id_like": 1,
+            "account_b/mixed": 1,
+        }
+        assert snap.zero_result_by_account_shape == {"account_a/id_like": 1}
+
+        d = snap.to_dict()
+        assert "queries_by_shape" in d
+        assert "zero_result_by_shape" in d
+        assert "queries_by_account_shape" in d
+        assert "zero_result_by_account_shape" in d
+        assert d["zero_result_by_account_shape"]["account_a/id_like"] == 1
+
+    def test_observer_table_with_account_shape_breakdown(self):
+        collector = self._setup_collector()
+        collector.record_query(
+            "search",
+            result_count=0,
+            scores=[],
+            caller_account="acct_x",
+            caller_user="user_x",
+            query_shape="id_like",
+        )
+        collector.record_query(
+            "search",
+            result_count=2,
+            scores=[0.9],
+            caller_account="acct_x",
+            caller_user="user_x",
+            query_shape="natural_language",
+        )
+        observer = RetrievalObserver()
+        table = observer.get_status_table()
+        assert "Account" in table
+        assert "Shape" in table
+        assert "acct_x" in table
+        assert "id_like" in table
+        assert "natural_language" in table
+        assert "100.0%" in table
+        assert "0.0%" in table

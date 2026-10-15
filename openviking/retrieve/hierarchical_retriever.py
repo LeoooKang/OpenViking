@@ -19,6 +19,7 @@ from openviking.models.embedder.base import (
     embedder_supports_multimodal,
 )
 from openviking.models.rerank import RerankClient
+from openviking.retrieve.query_shape import classify_query_shape, extract_caller_identity
 from openviking.retrieve.retrieval_stats import get_stats_collector
 from openviking.server.identity import RequestContext
 from openviking.storage.abstract_overview import AbstractOverviewFormatError, body_for_preview
@@ -319,6 +320,8 @@ class HierarchicalRetriever:
         final = matched[:limit]
 
         elapsed_ms = (time.monotonic() - t0) * 1000
+        caller_acct, caller_usr = extract_caller_identity(ctx)
+        shape = classify_query_shape(getattr(query, "query", "") or "")
         get_stats_collector().record_query(
             context_type=context_type or "unknown",
             result_count=len(final),
@@ -328,6 +331,9 @@ class HierarchicalRetriever:
             rerank_fallback=rerank_fell_back,
             lane=effective_lane,
             rerank_latency_ms=rerank_latency_ms,
+            caller_account=caller_acct,
+            caller_user=caller_usr,
+            query_shape=shape,
         )
 
         return QueryResult(

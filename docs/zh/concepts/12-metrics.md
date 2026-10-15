@@ -122,6 +122,9 @@ scrape_configs:
 | `status` | 请求或阶段状态 | `200`、`ok`、`error` |
 | `operation` | 操作名称 | `search.find`、`resources.add_resource` |
 | `context_type` | 检索上下文类型 | `resource` |
+| `caller_account` | 调用方账户标识 | `default`、`test-account` |
+| `caller_user` | 调用方用户标识 | `default`、`alice` |
+| `query_shape` | 查询形态分类 | `id_like`、`natural_language`、`mixed` |
 | `provider` | 模型或外部服务提供方 | `volcengine` |
 | `model_name` | 模型名称 | `doubao-seed-1-8-251228` |
 | `stage` | 阶段标签（按指标族定义） | 资源阶段：`parse_artifact`；Token 归因阶段：`embed_query` |
@@ -158,10 +161,10 @@ scrape_configs:
 
 | 指标族 | 类型 | 常见标签 | 含义 |
 |--------|------|----------|------|
-| `openviking_retrieval_requests_total` | Counter | `account_id, context_type` | 检索请求次数 |
-| `openviking_retrieval_results_total` | Counter | `account_id, context_type` | 检索返回结果数量累计 |
-| `openviking_retrieval_latency_seconds` | Histogram | `account_id, context_type` | 检索耗时分布 |
-| `openviking_retrieval_zero_result_total` | Counter | `account_id, context_type` | 检索零结果次数 |
+| `openviking_retrieval_requests_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | 检索请求次数 |
+| `openviking_retrieval_results_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | 检索返回结果数量累计 |
+| `openviking_retrieval_latency_seconds` | Histogram | `account_id, context_type, caller_account, caller_user, query_shape` | 检索耗时分布 |
+| `openviking_retrieval_zero_result_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | 检索零结果次数 |
 | `openviking_retrieval_rerank_used_total` | Counter | `account_id` | 检索中使用 rerank 的次数 |
 | `openviking_retrieval_rerank_fallback_total` | Counter | `account_id` | 检索 rerank 回退次数 |
 | `openviking_resource_stage_total` | Counter | `account_id, stage, status` | 资源导入各阶段执行次数 |

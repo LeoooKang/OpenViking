@@ -122,6 +122,9 @@ scrape_configs:
 | `status` | request or stage status | `200`, `ok`, `error` |
 | `operation` | structured operation name | `search.find`, `resources.add_resource` |
 | `context_type` | retrieval context type | `resource` |
+| `caller_account` | caller account identity | `default`, `test-account` |
+| `caller_user` | caller user identity | `default`, `alice` |
+| `query_shape` | query token shape classification | `id_like`, `natural_language`, `mixed` |
 | `provider` | model or external service provider | `volcengine` |
 | `model_name` | model name | `doubao-seed-1-8-251228` |
 | `stage` | stage label (defined by each metric family) | resource stage: `parse_artifact`; token attribution stage: `embed_query` |
@@ -158,10 +161,10 @@ Typical usage:
 
 | Metric Family | Type | Common Labels | Meaning |
 |---------------|------|---------------|---------|
-| `openviking_retrieval_requests_total` | Counter | `account_id, context_type` | retrieval request count |
-| `openviking_retrieval_results_total` | Counter | `account_id, context_type` | total retrieved results |
-| `openviking_retrieval_latency_seconds` | Histogram | `account_id, context_type` | retrieval latency distribution |
-| `openviking_retrieval_zero_result_total` | Counter | `account_id, context_type` | retrieval zero-result count |
+| `openviking_retrieval_requests_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | retrieval request count |
+| `openviking_retrieval_results_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | total retrieved results |
+| `openviking_retrieval_latency_seconds` | Histogram | `account_id, context_type, caller_account, caller_user, query_shape` | retrieval latency distribution |
+| `openviking_retrieval_zero_result_total` | Counter | `account_id, context_type, caller_account, caller_user, query_shape` | retrieval zero-result count |
 | `openviking_retrieval_rerank_used_total` | Counter | `account_id` | number of retrievals that used rerank |
 | `openviking_retrieval_rerank_fallback_total` | Counter | `account_id` | retrieval rerank fallback count |
 | `openviking_resource_stage_total` | Counter | `account_id, stage, status` | count of resource ingestion stages |

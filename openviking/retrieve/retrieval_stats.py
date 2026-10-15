@@ -27,6 +27,12 @@ class RetrievalStats:
     max_score: float = 0.0
     min_score: float = float("inf")
     queries_by_type: Dict[str, int] = field(default_factory=dict)
+    queries_by_shape: Dict[str, int] = field(default_factory=dict)
+    zero_result_by_shape: Dict[str, int] = field(default_factory=dict)
+    queries_by_account: Dict[str, int] = field(default_factory=dict)
+    zero_result_by_account: Dict[str, int] = field(default_factory=dict)
+    queries_by_account_shape: Dict[str, int] = field(default_factory=dict)
+    zero_result_by_account_shape: Dict[str, int] = field(default_factory=dict)
     rerank_used: int = 0
     rerank_fallback: int = 0
     rerank_by_lane: Dict[str, int] = field(default_factory=dict)
@@ -79,6 +85,12 @@ class RetrievalStats:
             "max_score": round(self.max_score, 4) if self.total_results > 0 else 0.0,
             "min_score": round(self.min_score, 4) if self.total_results > 0 else 0.0,
             "queries_by_type": dict(self.queries_by_type),
+            "queries_by_shape": dict(self.queries_by_shape),
+            "zero_result_by_shape": dict(self.zero_result_by_shape),
+            "queries_by_account": dict(self.queries_by_account),
+            "zero_result_by_account": dict(self.zero_result_by_account),
+            "queries_by_account_shape": dict(self.queries_by_account_shape),
+            "zero_result_by_account_shape": dict(self.zero_result_by_account_shape),
             "rerank_used": self.rerank_used,
             "rerank_fallback": self.rerank_fallback,
             "rerank_by_lane": dict(self.rerank_by_lane),
@@ -124,14 +136,41 @@ class RetrievalStatsCollector:
         rerank_fallback: bool = False,
         lane: Optional[str] = None,
         rerank_latency_ms: float = 0.0,
+        caller_account: str = "default",
+        caller_user: str = "default",
+        query_shape: str = "natural_language",
     ) -> None:
         """Record metrics from a single retrieval query."""
+        account_key = str(caller_account or "default")
+        user_key = str(caller_user or "default")
+        shape_key = str(query_shape or "natural_language")
+        acct_shape_key = f"{account_key}/{shape_key}"
+
         with self._lock:
             self._stats.total_queries += 1
             self._stats.total_results += result_count
 
             if result_count == 0:
                 self._stats.zero_result_queries += 1
+                self._stats.zero_result_by_shape[shape_key] = (
+                    self._stats.zero_result_by_shape.get(shape_key, 0) + 1
+                )
+                self._stats.zero_result_by_account[account_key] = (
+                    self._stats.zero_result_by_account.get(account_key, 0) + 1
+                )
+                self._stats.zero_result_by_account_shape[acct_shape_key] = (
+                    self._stats.zero_result_by_account_shape.get(acct_shape_key, 0) + 1
+                )
+
+            self._stats.queries_by_shape[shape_key] = (
+                self._stats.queries_by_shape.get(shape_key, 0) + 1
+            )
+            self._stats.queries_by_account[account_key] = (
+                self._stats.queries_by_account.get(account_key, 0) + 1
+            )
+            self._stats.queries_by_account_shape[acct_shape_key] = (
+                self._stats.queries_by_account_shape.get(acct_shape_key, 0) + 1
+            )
 
             for s in scores:
                 self._stats.total_score_sum += s
@@ -170,6 +209,9 @@ class RetrievalStatsCollector:
                 latency_seconds=latency_ms / 1000.0,
                 rerank_used=bool(rerank_used),
                 rerank_fallback=bool(rerank_fallback),
+                caller_account=account_key,
+                caller_user=user_key,
+                query_shape=shape_key,
             )
         except Exception:
             pass

@@ -114,6 +114,36 @@ def test_retrieval_stats_datasource_emits_completed_event(patch_event_emit):
             "latency_seconds": 0.12,
             "rerank_used": True,
             "rerank_fallback": False,
+            "caller_account": "default",
+            "caller_user": "default",
+            "query_shape": "natural_language",
+        },
+    ) in patch_event_emit
+
+
+def test_retrieval_stats_datasource_with_explicit_caller_and_shape(patch_event_emit):
+    """Explicit caller_account, caller_user, and query_shape are emitted in payload."""
+
+    retrieval.RetrievalStatsDataSource.record_retrieval(
+        context_type="search",
+        result_count=0,
+        latency_seconds=0.05,
+        caller_account="acct_monica",
+        caller_user="user_monica",
+        query_shape="id_like",
+    )
+
+    assert (
+        "retrieval.completed",
+        {
+            "context_type": "search",
+            "result_count": 0,
+            "latency_seconds": 0.05,
+            "rerank_used": False,
+            "rerank_fallback": False,
+            "caller_account": "acct_monica",
+            "caller_user": "user_monica",
+            "query_shape": "id_like",
         },
     ) in patch_event_emit
 

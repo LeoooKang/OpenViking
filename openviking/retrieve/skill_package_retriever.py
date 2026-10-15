@@ -9,6 +9,7 @@ from typing import Optional
 from openviking.core.retrieval_types import SearchType
 from openviking.models.embedder.base import embed_compat
 from openviking.retrieve.hierarchical_retriever import HierarchicalRetriever
+from openviking.retrieve.query_shape import classify_query_shape, extract_caller_identity
 from openviking.retrieve.retrieval_stats import get_stats_collector
 from openviking.retrieve.skill_results import SkillResultResolver, candidate_key, pagination_key
 from openviking.server.identity import RequestContext
@@ -110,11 +111,16 @@ class SkillPackageRetriever(HierarchicalRetriever):
 
         final = matches[:limit]
         telemetry.set("vector.returned", len(final))
+        caller_acct, caller_usr = extract_caller_identity(ctx)
+        shape = classify_query_shape(getattr(query, "query", "") or "")
         get_stats_collector().record_query(
             context_type="skill",
             result_count=len(final),
             scores=[item.score for item in final],
             latency_ms=(time.monotonic() - started) * 1000,
             rerank_used=False,
+            caller_account=caller_acct,
+            caller_user=caller_usr,
+            query_shape=shape,
         )
         return QueryResult(query=query, matched_contexts=final, searched_directories=target_dirs)

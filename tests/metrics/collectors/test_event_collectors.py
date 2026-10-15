@@ -473,3 +473,31 @@ def test_retrieval_collector_negative_result_count_is_bucketed_as_zero_result(
         text,
     )
     assert not re.search(r'openviking_retrieval_results_total\{[^}]*context_type="search"', text)
+
+
+def test_retrieval_collector_caller_and_query_shape_labels(registry, render_prometheus):
+    """RetrievalCollector emits caller_account, caller_user, and query_shape as metric labels."""
+    RetrievalCollector().receive(
+        "retrieval.completed",
+        {
+            "context_type": "search",
+            "result_count": 0,
+            "latency_seconds": 0.04,
+            "rerank_used": False,
+            "rerank_fallback": False,
+            "caller_account": "acct_test",
+            "caller_user": "user_test",
+            "query_shape": "id_like",
+        },
+        registry,
+    )
+    text = render_prometheus(registry)
+
+    assert 'caller_account="acct_test"' in text
+    assert 'caller_user="user_test"' in text
+    assert 'query_shape="id_like"' in text
+    assert 'context_type="search"' in text
+    assert re.search(
+        r'openviking_retrieval_zero_result_total\{[^}]*caller_account="acct_test"[^}]*caller_user="user_test"[^}]*context_type="search"[^}]*query_shape="id_like"[^}]*\} 1(?:\.0)?',
+        text,
+    )

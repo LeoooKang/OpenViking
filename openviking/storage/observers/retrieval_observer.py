@@ -80,6 +80,25 @@ class RetrievalObserver(BaseObserver):
             lines.append("")
             lines.append(tabulate(type_data, headers="keys", tablefmt="pretty"))
 
+        # Query & zero-result breakdown by account and shape
+        if stats.queries_by_account_shape:
+            acct_shape_data = []
+            for key, total_q in sorted(stats.queries_by_account_shape.items()):
+                acct, shape = key.split("/", 1) if "/" in key else (key, "unknown")
+                zero_q = stats.zero_result_by_account_shape.get(key, 0)
+                rate = f"{zero_q / total_q:.1%}" if total_q > 0 else "0.0%"
+                acct_shape_data.append(
+                    {
+                        "Account": acct,
+                        "Shape": shape,
+                        "Queries": total_q,
+                        "Zero-Result": zero_q,
+                        "Zero-Result Rate": rate,
+                    }
+                )
+            lines.append("")
+            lines.append(tabulate(acct_shape_data, headers="keys", tablefmt="pretty"))
+
         return "\n".join(lines)
 
     def __str__(self) -> str:

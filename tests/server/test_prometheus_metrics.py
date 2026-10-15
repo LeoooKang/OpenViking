@@ -102,15 +102,15 @@ class TestRetrievalStatsMetricsIntegration:
             exporter = PrometheusExporter(registry=get_metrics_registry())
             text = exporter.render()
             assert (
-                'openviking_retrieval_requests_total{account_id="__unknown__",context_type="memory"} 1'
+                'openviking_retrieval_requests_total{account_id="__unknown__",caller_account="default",caller_user="default",context_type="memory",query_shape="natural_language"} 1'
                 in text
             )
             assert (
-                'openviking_retrieval_results_total{account_id="__unknown__",context_type="memory"} 3'
+                'openviking_retrieval_results_total{account_id="__unknown__",caller_account="default",caller_user="default",context_type="memory",query_shape="natural_language"} 3'
                 in text
             )
             assert (
-                'openviking_retrieval_latency_seconds_count{account_id="__unknown__",context_type="memory"} 1'
+                'openviking_retrieval_latency_seconds_count{account_id="__unknown__",caller_account="default",caller_user="default",context_type="memory",query_shape="natural_language"} 1'
                 in text
             )
         finally:

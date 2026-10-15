@@ -60,6 +60,12 @@ class RetrievalCollector(EventMetricCollector):
     )
 
     SUPPORTED_EVENTS: ClassVar[frozenset[str]] = frozenset({"retrieval.completed"})
+    LABEL_NAMES: ClassVar[tuple[str, ...]] = (
+        "context_type",
+        "caller_account",
+        "caller_user",
+        "query_shape",
+    )
 
     def collect(self, registry=None) -> None:
         """Implement the collector interface as a no-op because retrieval metrics are event-driven."""
@@ -79,6 +85,9 @@ class RetrievalCollector(EventMetricCollector):
             latency_seconds=float(payload["latency_seconds"]),
             rerank_used=bool(payload.get("rerank_used")),
             rerank_fallback=bool(payload.get("rerank_fallback")),
+            caller_account=str(payload.get("caller_account") or "default"),
+            caller_user=str(payload.get("caller_user") or "default"),
+            query_shape=str(payload.get("query_shape") or "natural_language"),
         )
 
     def record_completed(
@@ -90,6 +99,9 @@ class RetrievalCollector(EventMetricCollector):
         latency_seconds: float,
         rerank_used: bool,
         rerank_fallback: bool,
+        caller_account: str = "default",
+        caller_user: str = "default",
+        query_shape: str = "natural_language",
     ) -> None:
         """
         Record counters and latency for one completed retrieval operation.
@@ -99,12 +111,18 @@ class RetrievalCollector(EventMetricCollector):
         usage and fallback are tracked as separate global counters for coarse operational
         visibility.
         """
-        labels = {"context_type": str(context_type or "unknown")}
+        labels = {
+            "context_type": str(context_type or "unknown"),
+            "caller_account": str(caller_account or "default"),
+            "caller_user": str(caller_user or "default"),
+            "query_shape": str(query_shape or "natural_language"),
+        }
+        label_names = self.LABEL_NAMES
         count = int(result_count)
         registry.inc_counter(
             self.REQUESTS_TOTAL,
             labels=labels,
-            label_names=("context_type",),
+            label_names=label_names,
         )
         # Classify the outcome exhaustively so every request lands in exactly one bucket.
         # Only a positive count is a valid RESULTS_TOTAL increment: the registry rejects
@@ -117,20 +135,20 @@ class RetrievalCollector(EventMetricCollector):
             registry.inc_counter(
                 self.RESULTS_TOTAL,
                 labels=labels,
-                label_names=("context_type",),
+                label_names=label_names,
                 amount=count,
             )
         else:
             registry.inc_counter(
                 self.ZERO_RESULT_TOTAL,
                 labels=labels,
-                label_names=("context_type",),
+                label_names=label_names,
             )
         registry.observe_histogram(
             self.LATENCY_SECONDS,
             float(latency_seconds),
             labels=labels,
-            label_names=("context_type",),
+            label_names=label_names,
         )
         if rerank_used:
             registry.inc_counter(self.RERANK_USED_TOTAL)

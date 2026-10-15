@@ -35,6 +35,9 @@ class RetrievalStatsDataSource(EventMetricDataSource):
         latency_seconds: float,
         rerank_used: bool = False,
         rerank_fallback: bool = False,
+        caller_account: str = "default",
+        caller_user: str = "default",
+        query_shape: str = "natural_language",
     ) -> None:
         """
         Emit the final retrieval outcome, latency, and rerank flags for one request.
@@ -50,5 +53,8 @@ class RetrievalStatsDataSource(EventMetricDataSource):
                 "latency_seconds": float(latency_seconds),
                 "rerank_used": bool(rerank_used),
                 "rerank_fallback": bool(rerank_fallback),
+                "caller_account": str(caller_account or "default"),
+                "caller_user": str(caller_user or "default"),
+                "query_shape": str(query_shape or "natural_language"),
             },
         )
